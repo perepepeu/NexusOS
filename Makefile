@@ -70,7 +70,13 @@ build/user/syscall-test.elf: build/user/syscall_test.o build/user/syscall_regist
 build/user/syscall-test.bin: build/user/syscall-test.elf
 	objcopy -O binary $< $@
 
-build/kernel/user_mode.o: kernel/user_mode.asm toolchain.mk Makefile build/include/syscall_abi.inc build/user/syscall-test.bin | check-kernel-arch
+build/user/read-test.elf: build/user/read_test.o user/linker.ld
+	$(LD) -nostdlib -m elf_x86_64 -T user/linker.ld build/user/read_test.o -o $@
+
+build/user/read-test.bin: build/user/read-test.elf
+	objcopy -O binary $< $@
+
+build/kernel/user_mode.o: kernel/user_mode.asm toolchain.mk Makefile build/include/syscall_abi.inc build/user/syscall-test.bin build/user/read-test.bin | check-kernel-arch
 	mkdir -p $(@D)
 	$(AS) $(ASFLAGS) -Ibuild/include/ $< -o $@
 

@@ -462,35 +462,68 @@ void user_mode_fault_selftest(void) {
 static volatile bool syscall_test_finished;
 static uint64_t syscall_test_pid;
 static volatile unsigned int syscall_sleep_observed;
+static volatile unsigned int syscall_input_observed;
 static void syscall_witness(void *argument) {
     (void)argument;
+    bool was_input = false;
     while (!syscall_test_finished) {
         uint64_t flags = irq_save();
         int pcb = process_core_find(&manager, syscall_test_pid);
         if (pcb >= 0 && manager.processes[pcb].info.state == PROCESS_BLOCKED &&
                 manager.processes[pcb].info.blocked_on == PROCESS_BLOCK_SLEEP) ++syscall_sleep_observed;
-        irq_restore(flags); process_sleep(1);
+        bool input = pcb >= 0 && manager.processes[pcb].info.state == PROCESS_BLOCKED &&
+            manager.processes[pcb].info.blocked_on == PROCESS_BLOCK_INPUT;
+        bool report = input && !was_input;
+        if (report) ++syscall_input_observed;
+        was_input = input;
+        irq_restore(flags);
+        if (report) log_info("test", "Sys_read bloqueado: fase=%u; PIT e tarefa testemunha ativos.", syscall_input_observed);
+        process_sleep(1);
     }
 }
 extern const unsigned char user_syscalls_start[], user_syscalls_end[];
-void syscall_selftest(void) {
+extern const unsigned char user_read_start[], user_read_end[];
+uint64_t process_user_io_demo(void) {
+    return process_create_user("sysdemo", user_read_start, (uintptr_t)user_read_end - (uintptr_t)user_read_start, 0, 0);
+}
+static void syscall_run_test(bool reader) {
     struct pmm_stats before, after; struct vmm_stats vb, va;
     pmm_get_stats(&before); vmm_get_stats(&vb);
-    syscall_test_finished = false; syscall_sleep_observed = 0;
+    syscall_test_finished = false; syscall_sleep_observed = syscall_input_observed = 0;
     process_preempt_disable();
-    syscall_test_pid = process_create_user("syscalls", user_syscalls_start,
-        (uintptr_t)user_syscalls_end - (uintptr_t)user_syscalls_start, 0, (uintptr_t)&kernel_secret);
+    const unsigned char *image = reader ? user_read_start : user_syscalls_start;
+    const unsigned char *end = reader ? user_read_end : user_syscalls_end;
+    syscall_test_pid = process_create_user(reader ? "sysread" : "syscalls", image,
+        (uintptr_t)end - (uintptr_t)image, 0, reader ? 1 : (uintptr_t)&kernel_secret);
     uint64_t witness = process_create("syscall-witness", syscall_witness, 0);
     KASSERT(syscall_test_pid && witness); process_preempt_enable();
     int status; KASSERT(process_wait(syscall_test_pid, &status));
     log_info("test", "Programa de syscalls: status=%u", (unsigned int)status);
     KASSERT(status == 0 && syscall_sleep_observed && kernel_secret == 0x53a9bc71de402816ull);
+    KASSERT(!reader || syscall_input_observed == 2);
     syscall_test_finished = true; KASSERT(process_wait(witness, &status) && status == 0);
+    if (reader) {
+        uint64_t blocked = process_create_user("read-kill", user_read_start,
+            (uintptr_t)user_read_end - (uintptr_t)user_read_start, 0, 2);
+        KASSERT(blocked); bool sleeping = false;
+        for (unsigned int i = 0; i < 100 && !sleeping; ++i) {
+            uint64_t flags = irq_save(); int slot = process_core_find(&manager, blocked);
+            sleeping = slot >= 0 && manager.processes[slot].info.state == PROCESS_BLOCKED &&
+                manager.processes[slot].info.blocked_on == PROCESS_BLOCK_INPUT;
+            irq_restore(flags); if (!sleeping) process_sleep(1);
+        }
+        KASSERT(sleeping && process_kill(blocked, -9));
+        KASSERT(process_wait(blocked, &status) && status == -9);
+        log_info("test", "Sys_read: encerramento durante INPUT e limpeza de recursos OK.");
+    }
     pmm_get_stats(&after); vmm_get_stats(&va);
     KASSERT(before.free_pages == after.free_pages && before.allocated_pages == after.allocated_pages &&
         vb.mapped_pages == va.mapped_pages && vb.table_pages == va.table_pages);
-    log_info("test", "Syscalls: programa C CPL3, write, exit/getpid/yield, sleep bloqueante, GPRs/flags e buffers OK.");
+    if (reader) log_info("test", "Sys_read: buffers RW, teclas PS/2, leituras curtas, bloqueio/despertar e limpeza OK.");
+    else log_info("test", "Syscalls: programa C CPL3, write, exit/getpid/yield, sleep bloqueante, GPRs/flags e buffers OK.");
 }
+void syscall_selftest(void) { syscall_run_test(false); }
+void syscall_read_selftest(void) { syscall_run_test(true); }
 
 static volatile unsigned int order[12], order_count;
 static void test_worker(void *argument) {

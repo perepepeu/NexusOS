@@ -4,6 +4,8 @@ extern int user_abi_register_test(void);
 static uint64_t ticks(void) { return (uint64_t)nexus_syscall3(USER_SYSCALL_TICKS, 0, 0, 0); }
 __attribute__((noreturn, section(".text.entry"))) void _start(uint64_t kernel_target) {
     CHECK(sys_getpid() > 1 && sys_getpid() == sys_getpid(), 101);
+    /* Este perfil roda antes de keyboard_init: nao pode bloquear para sempre. */
+    CHECK(sys_read(0, (void *)0x600000, 1) == -USER_ENODEV, 126);
     CHECK(nexus_syscall3(USER_SYSCALL_COUNT, 0, 0, 0) == -USER_ENOSYS, 102);
     CHECK(nexus_syscall3((uint64_t)-1, 0, 0, 0) == -USER_ENOSYS, 103);
     CHECK(sys_write(0, 0, 0) == -USER_EBADF && sys_write(3, 0, 1) == -USER_EBADF, 104);

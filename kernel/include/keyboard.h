@@ -13,6 +13,7 @@ struct key_event {
 };
 
 bool keyboard_init(void);
+bool keyboard_ready(void);
 void keyboard_irq(void);
 bool keyboard_read(struct key_event *event);
 void keyboard_wait(struct key_event *event);

@@ -79,8 +79,11 @@ static bool device_command(uint8_t value) {
     return false;
 }
 
+static bool ready;
+bool keyboard_ready(void) { return ready; }
 bool keyboard_init(void) {
     uint64_t flags = irq_save();
+    ready = false;
     interrupts_disable_irq(1);
     head = tail = dropped = 0;
     left_shift = right_shift = left_ctrl = right_ctrl = left_alt = right_alt = false;
@@ -97,6 +100,7 @@ bool keyboard_init(void) {
         && device_command(0xf4);
     config = (config | 1) & ~0x10;
     ok = ok && command(0x60) && data(config);
+    ready = ok;
     if (ok) interrupts_enable_irq(1);
     irq_restore(flags);
     if (ok) log_info("keyboard", "PS/2 pronto: IRQ1, scancodes set 1, layout US.");

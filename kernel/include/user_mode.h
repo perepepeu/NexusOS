@@ -13,5 +13,7 @@ void process_user_return(struct interrupt_frame *frame);
 void user_mode_selftest(void);
 void user_mode_fault_selftest(void);
 void syscall_selftest(void);
+void syscall_read_selftest(void);
+uint64_t process_user_io_demo(void);
 uint64_t process_user_demo(void);
 #endif

@@ -3,6 +3,7 @@
 #include <console.h>
 #include <serial.h>
 #include <io.h>
+#include <keyboard.h>
 
 int64_t sys_write(struct address_space *space, uint64_t fd, uint64_t buffer, uint64_t bytes) {
     if (fd != 1 && fd != 2) return -USER_EBADF;
@@ -19,6 +20,25 @@ int64_t sys_write(struct address_space *space, uint64_t fd, uint64_t buffer, uin
         irq_restore(flags); done += count;
     }
     return (int64_t)bytes;
+}
+int64_t sys_read(struct address_space *space, uint64_t fd, uint64_t buffer, uint64_t bytes) {
+    if (fd != 0) return -USER_EBADF;
+    if (bytes > USER_IO_MAX) return -USER_EINVAL;
+    if (!bytes) return 0;
+    if (!address_user_check(space, buffer, bytes, true)) return -USER_EFAULT;
+    if (!keyboard_ready()) return -USER_ENODEV;
+    char bounce[256]; size_t used = 0; struct key_event event;
+    /* Dorme ate haver um caractere; nao aguarda preencher todo o pedido. */
+    while (!used) {
+        keyboard_wait(&event);
+        if (event.pressed && event.character) bounce[used++] = event.character;
+    }
+    while (used < bytes && used < sizeof bounce && keyboard_read(&event))
+        if (event.pressed && event.character) bounce[used++] = event.character;
+    /* No modelo atual ha uma thread por PID e nenhuma syscall altera mapas;
+     * o espaco continua vivo durante o bloqueio. Revalidar antes do copyout. */
+    if (!address_user_copy(space, buffer, bounce, used, true)) return -USER_EFAULT;
+    return (int64_t)used;
 }
 int64_t sys_sleep(uint64_t milliseconds) {
     if (milliseconds > USER_SLEEP_MAX_MS) return -USER_EINVAL;
@@ -38,6 +58,7 @@ int64_t syscall_dispatch(struct address_space *space, const struct interrupt_fra
         case USER_SYSCALL_GETTID: return (int64_t)thread_current_tid();
         case USER_SYSCALL_TICKS: return (int64_t)timer_ticks();
         case USER_SYSCALL_WRITE: return sys_write(space, frame->rdi, frame->rsi, frame->rdx);
+        case USER_SYSCALL_READ: return sys_read(space, frame->rdi, frame->rsi, frame->rdx);
         case USER_SYSCALL_SLEEP: return sys_sleep(frame->rdi);
         default: return -USER_ENOSYS;
     }

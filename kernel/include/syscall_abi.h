@@ -15,6 +15,7 @@
 #define USER_SYSCALL_COUNT 8
 #define USER_EBADF 9
 #define USER_EFAULT 14
+#define USER_ENODEV 19
 #define USER_EINVAL 22
 #define USER_ENOSYS 38
 #define USER_IO_MAX 4096

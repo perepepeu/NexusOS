@@ -234,7 +234,7 @@ static void command(char *line, const char *bootloader, const char *boot_version
         || equal(name, "reboot") || equal(name, "shutdown")
         || equal(name, "memory") || equal(name, "meminfo") || equal(name, "memtest")
         || equal(name, "memmap") || equal(name, "pmm") || equal(name, "vmm") || equal(name, "heap")
-        || equal(name, "ps") || equal(name, "threads") || equal(name, "spawn") || equal(name, "spawnuser") || equal(name, "sched");
+        || equal(name, "ps") || equal(name, "threads") || equal(name, "spawn") || equal(name, "spawnuser") || equal(name, "sched") || equal(name, "sysdemo");
     if (!known) { put("Comando desconhecido: "); put(name); put(". Digite help.\n"); return; }
     if (*args) { put("Uso: "); put(name); put(" (sem argumentos).\n"); return; }
     if (equal(name, "help")) {
@@ -242,6 +242,7 @@ static void command(char *line, const char *bootloader, const char *boot_version
         put("Energia: reboot shutdown\n");
         put("Memoria: memory meminfo memmap pmm vmm heap memtest\n");
         put("Processos: ps threads spawn spawnuser kill PID wait PID sched\n");
+        put("Usuario: sysdemo (programa interativo de syscalls em Ring 3)\n");
         put("Edicao: setas, Home/End, Delete, Backspace, historico Up/Down.\n");
         put("Ctrl+C cancela, Ctrl+U apaga a linha, Ctrl+L limpa a tela.\n");
     } else if (equal(name, "ps")) process_summary();
@@ -251,6 +252,13 @@ static void command(char *line, const char *bootloader, const char *boot_version
         uint64_t pid = process_user_demo();
         if (pid) { put("Processo Ring3 criado: "); number(pid, true); put(" (saida esperada: 42)\n"); }
         else put("Falha ao criar processo de usuario.\n");
+    }
+    else if (equal(name, "sysdemo")) {
+        uint64_t pid = process_user_io_demo();
+        if (!pid) { put("Falha ao criar programa de syscalls.\n"); return; }
+        int status;
+        if (process_wait(pid, &status)) { put("Sysdemo concluido: status="); signed_number(status); put("\n"); }
+        else put("Falha ao aguardar programa de syscalls.\n");
     }
     else if (equal(name, "spawn")) {
         uint64_t pid = process_create("demo", demo_process, 0);

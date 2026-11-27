@@ -2,6 +2,11 @@
 
 ## Em desenvolvimento
 
+- read bloqueante no PS/2 com copyout RW, leituras curtas e erros sem consumir entrada.
+- Erro ENODEV antes de inicializar o teclado; teste de kill enquanto espera entrada.
+- Comando sysdemo executa programa C interativo em Ring 3; testes com teclas pelo QMP.
+- Teste de spawnuser aguarda a mensagem completa antes de capturar o PID da serial.
+
 - Dispatcher INT80 preemptivel em contexto de tarefa; exit/getpid/yield e sleep em milissegundos.
 - write com stdout/stderr, copia segura, tamanho limitado e saida binaria na serial.
 - Programa C freestanding em CPL3 testa erros, buffers, sono bloqueante e GPRs/flags.

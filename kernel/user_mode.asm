@@ -186,4 +186,8 @@ global user_syscalls_start, user_syscalls_end
 user_syscalls_start:
     incbin "build/user/syscall-test.bin"
 user_syscalls_end:
+global user_read_start, user_read_end
+user_read_start:
+    incbin "build/user/read-test.bin"
+user_read_end:
 section .note.GNU-stack noalloc noexec nowrite progbits

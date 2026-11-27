@@ -231,6 +231,7 @@ void kmain(void) {
     power_init(rsdp.response && !boot_option("selftest=power-fallback") ? rsdp.response->address : 0,
         hhdm.response->offset, memory_map.response);
     if (keyboard_init()) {
+        if (boot_option("selftest=sysread")) syscall_read_selftest();
         if (boot_option("selftest=keyboard") || boot_option("selftest=keyboard-echo"))
             keyboard_loop(boot_option("selftest=keyboard"));
         terminal_run(info->name, info->version);

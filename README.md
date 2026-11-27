@@ -288,6 +288,7 @@ o texto digitado, sem interpretacao de aspas, pipes ou redirecionamentos.
 | `memmap` | Lista enderecos fisicos, tamanhos e tipos de todas as regioes |
 | `pmm` | Mostra paginas livres, alocadas e reservadas para o bitmap |
 | `vmm` | Mostra CR3, janela virtual e tabelas de paginas proprias |
+| `sysdemo` | Executa um programa C em Ring 3 que le uma linha e mostra a resposta |
 
 O editor aceita 127 caracteres, insercao na posicao do cursor, Left/Right,
 Home/End, Delete, Backspace e Tab (quatro espacos). Up/Down navegam pelo
@@ -822,9 +823,10 @@ uma imagem plana fornecida pelo kernel, de ate 64 KiB. Enderecos: codigo
 e 64 paginas de dados (256 KiB, sem contar tabelas). A pilha inicial fica em
 0x803ff8, sem endereco de retorno: o programa deve chamar exit.
 
-A ABI inicial usa `INT 0x80`, numero em RAX, argumento escalar em RDI e retorno
-em RAX: exit=0, yield=1, getpid=2, gettid=3, ticks=4. Numero desconhecido retorna
--38. Nao ha ponteiros/buffers de usuario nessas chamadas. SYSCALL/SYSENTER
+A ABI v1 usa `INT 0x80`, numero em RAX, argumentos RDI/RSI/RDX e retorno
+em RAX: exit=0, yield=1, getpid=2, gettid=3, ticks=4, write=5, read=6, sleep=7.
+Numero desconhecido retorna -38. Buffers de I/O passam por validacao integral
+e copia segura, com permissoes de usuario e escrita conforme a direcao. SYSCALL/SYSENTER
 nao configurados sao desabilitados; IOPL/TSS negam acesso a portas. FPU/SIMD
 provocam #NM e encerramento, pois seu contexto ainda nao e salvo.
 
@@ -855,6 +857,36 @@ syscalls para criar threads de usuario, TLS, FPU/SIMD ou SMP. Cada processo
 Ring 3 inicia uma thread; as multiplas threads existentes continuam disponiveis
 para processos do kernel. As protecoes descritas cobrem acessos arquiteturais
 pela CPU, sem promessa de protecao contra canais laterais.
+
+## Chamadas de sistema
+
+As seis chamadas solicitadas, `write`, `read`, `exit`, `getpid`, `sleep` e
+`yield`, possuem wrappers C freestanding em `user/include/syscall.h`. A
+[especificacao da ABI](docs/syscalls.md) descreve registros, numeros, retornos
+e erros. stdout/stderr sao fd 1/2 no console e serial; stdin e fd 0 no PS/2.
+I/O aceita ate 4096 bytes por chamada e preserva bytes NUL na serial, sem
+exigir terminador. read nao faz eco/edicao e pode retornar menos bytes.
+sleep recebe milissegundos, bloqueia pelo PIT e deixa outras tarefas executar.
+
+O dispatcher habilita IRQs apos validar a entrada de CPL3 e volta a mascara-las
+antes do retorno validado por IRETQ. Assim, read e sleep podem bloquear sem
+parar o temporizador. Nao sao usados ponteiros de usuario diretamente em C:
+preflight verifica todas as paginas e buffers de kernel intermedeiam a copia.
+O caminho de copyout exige USER e WRITE, sem conceder a permissao especial do
+loader para popular paginas RX. Erros retornam -errno em vez de causar panic.
+
+```sh
+make check-syscalls
+# No terminal do NexusOS: sysdemo
+# Digite uma linha e Enter; o programa Ring 3 mostra a resposta e termina.
+```
+
+Programas de teste C/Assembly verificam a ABI e as chamadas em CPL3. IRQs podem
+preemptar o kernel dentro de uma syscall. A entrada PS/2 e injetada
+pelo QMP apos confirmar o bloqueio; uma tarefa testemunha observa sleep/INPUT.
+Sao testados limites, buffers invalidos, paginas somente de leitura, copias que
+cruzam paginas, leituras curtas, encerramento durante read e devolucao integral
+dos recursos. A demonstracao sysdemo e testada em primeiro plano pelo terminal.
 
 Referencias oficiais:
 - https://cdrdv2-public.intel.com/843827/253665-sdm-vol-1-dec-24.pdf
