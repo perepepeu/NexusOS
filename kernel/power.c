@@ -4,6 +4,7 @@
 #include <io.h>
 #include <log.h>
 #include <power.h>
+#include <process.h>
 
 static uint64_t direct_map;
 static const struct limine_memmap_response *memory_map;
@@ -115,7 +116,7 @@ static void flush_serial(void) {
     for (unsigned int i = 0; i < 1000000; ++i) if (inb(0x3fd) & 0x40) return;
 }
 
-bool power_reboot(void) {
+static bool reboot_unlocked(void) {
     log_info("power", "Reinicializacao solicitada."); flush_serial();
     if (reset_port) {
         log_info("power", "Reset ACPI via I/O."); flush_serial();
@@ -130,7 +131,7 @@ bool power_reboot(void) {
     return false;
 }
 
-bool power_shutdown(void) {
+static bool shutdown_unlocked(void) {
     if (!sleep_supported) { log_error("power", "Desligamento ACPI S5 indisponivel."); return false; }
     if (!(inw(pm1a) & 1)) {
         if (!smi_port || !acpi_enable) return false;
@@ -145,4 +146,10 @@ bool power_shutdown(void) {
     timer_wait(10);
     log_error("power", "Firmware nao concluiu o desligamento.");
     return false;
+}
+bool power_reboot(void) {
+    process_preempt_disable(); bool result = reboot_unlocked(); process_preempt_enable(); return result;
+}
+bool power_shutdown(void) {
+    process_preempt_disable(); bool result = shutdown_unlocked(); process_preempt_enable(); return result;
 }

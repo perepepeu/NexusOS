@@ -668,10 +668,13 @@ A troca em Assembly preserva os registradores callee-saved e o RSP conforme
 a ABI SysV; o contexto de cada processo restaura seu estado de interrupcoes.
 O codigo C do kernel usa somente registradores gerais: nao ha contexto FPU/SIMD.
 
-O escalonamento e cooperativo em round-robin. Um processo deve chamar
-`process_yield()`, `process_sleep()` ou `process_wait()` para ceder a CPU.
-O PIT contabiliza ticks e acorda processos dormindo; a IRQ nao troca contextos,
-aloca memoria nem libera pilhas. O processo Idle tem PID 0, TID 0, PCB/TCB e
+O escalonamento e preemptivo em Round Robin, com fila FIFO explicita de threads
+READY. Cada thread recebe quantum de 5 ticks do PIT de 100 Hz (50 ms nominais).
+Novas threads e threads acordadas entram no fim da fila, sem duplicatas;
+bloqueio e encerramento removem a thread da fila. `process_yield()` permite
+ceder antes de esgotar o quantum. O PIT contabiliza ticks, acorda threads e
+troca de contexto depois do EOI; a IRQ nao aloca memoria nem libera pilhas.
+O processo Idle tem PID 0, TID 0, PCB/TCB e
 pilha protegida proprios. So e escolhido quando nenhuma thread comum esta
 READY. Executa STI/HLT e volta ao escalonador apos uma interrupcao; nao pode
 ser encerrado, coletado ou bloqueado. Kernel e Idle ocupam dois dos 32 PCBs
@@ -683,10 +686,12 @@ Sem entrada, o terminal fica BLOCKED por teclado, permitindo que o Idle rode.
 A IRQ1 acorda os leitores sem trocar de contexto; a verificacao da fila e o
 bloqueio ocorrem com IRQs desabilitadas para evitar perda de wakeup. O PIT
 acorda threads dormindo e o Idle cede a CPU assim que houver trabalho pronto.
-Um processo que nunca cede a CPU pode bloquear o restante do sistema.
+Tarefas com IRQs habilitadas sao preemptadas mesmo sem chamar yield. As regioes
+com IRQs desabilitadas adiam a entrega do PIT, portanto o quantum nao e uma
+garantia de tempo real.
 
 Estados: READY, RUNNING, BLOCKED e TERMINATED. O campo `blocked_on` distingue
-sono pelo PIT, espera por filho, join e espera por teclado; todos sao BLOCKED e so voltam a READY
+sono pelo PIT, espera por filho, join, teclado e suspensao explicita; todos sao BLOCKED e so voltam a READY
 quando sua condicao e satisfeita. Ao retornar da funcao de
 entrada, a thread termina com status 0. O processo continua vivo enquanto houver
 outra thread ativa. `process_exit(status)` e `kill PID` encerram o grupo inteiro.
@@ -740,7 +745,7 @@ com vida util suficiente; nao ha garbage collector ou contagem geral de referenc
 
 Esta etapa executa callbacks confiaveis em ring 0, na mesma CR3 e memoria do
 kernel, em uma CPU. Nao implementa executaveis ELF, fork/exec, syscalls, ring 3,
-isolamento por processo, preempcao, sinais ou SMP. Uma excecao em um processo
+isolamento por processo, sinais ou SMP. Uma excecao em um processo
 do kernel para o sistema inteiro; o panic registra seu PID. A API nao deve ser
 chamada em IRQ/NMI ou com interrupcoes desabilitadas.
 
@@ -751,6 +756,46 @@ pilha, registradores, alternancia, sono, exit/wait, kill, retorno ao terminal,
 rollback em OOM e contadores de memoria restaurados. Uma VM separada provoca
 page fault na guarda da pilha e confere CR2 e PID. Falha de inicializacao do
 gerenciador usa panic 11.
+
+## Escalonador preemptivo
+
+`sched` mostra quantum, tamanho da fila de prontas, trocas, preempcoes e ticks
+adiados em regioes criticas. `thread_suspend(tid)` suspende uma thread READY ou
+a propria thread RUNNING; `thread_resume(tid)` a recoloca no fim da FIFO.
+Threads ja bloqueadas por outro motivo, encerradas e threads de sistema sao
+recusadas. Sono temporizado usa `process_sleep(ticks)`, com ticks ate INT64_MAX.
+
+A entrada de IRQ salva os 15 GPRs e o frame RIP/CS/RFLAGS/RSP/SS. A troca SysV
+em Assembly suspende o caminho de retorno na pilha de cada thread. Ao retomar
+uma thread interrompida, o handler termina e IRETQ restaura o estado completo
+de registradores gerais e flags. O EOI precede a troca para que a proxima
+thread possa receber IRQs. Nao ha salvamento de FPU/SIMD; os callbacks do kernel
+sao compilados com `-mgeneral-regs-only`.
+
+Fila, PCBs/TCBs, PMM/VMM, heap e registro de recursos sao acessados em regioes
+com IRQs desabilitadas. Logs, serial, framebuffer e redesenho do terminal
+tambem serializam suas estruturas. `process_preempt_disable()` e
+`process_preempt_enable()` permitem regioes criticas aninhadas entre threads,
+mantendo IRQs habilitadas. O PIT continua contando e marca uma troca pendente;
+a ultima chamada enable atende essa troca se houver trabalho pronto. Essas
+regioes nao substituem CLI ao compartilhar dados com IRQs, nao podem bloquear
+ou terminar a thread e devem ser curtas. O controle de energia impede troca
+de tarefa durante suas sequencias de hardware. Esta protecao e para uma CPU,
+sem locks SMP ou garantias contra callbacks ring 0 que desabilitem IRQs para sempre.
+
+```sh
+make check-scheduler
+# No terminal: sched, ps, threads
+```
+
+Os testes ASan/UBSan verificam FIFO, quantum, wakeup, suspensao, remocao de
+tarefas encerradas, capacidade e 5000 rotacoes da fila. No QEMU BIOS/UEFI com
+128, 512 e 5120 MiB, duas tarefas em Assembly mantem todos os GPRs ocupados e
+DF/flags conhecidos, sem yield. Uma terceira tarefa continua rodando, suspende
+e retoma uma delas e confirma adiamento aninhado de preempcao. Workers de
+memoria alocam e alteram dados durante trocas pelo PIT e verificam que
+PMM/VMM/heap voltam ao baseline ao terminar. Logs concorrentes sao validados
+pela sequencia serial e o console continua legivel.
 
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1

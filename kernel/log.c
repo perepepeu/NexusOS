@@ -4,6 +4,7 @@
 #include <console.h>
 #include <log.h>
 #include <serial.h>
+#include <io.h>
 
 static enum log_level minimum_level = LOG_INFO;
 static unsigned int sequence;
@@ -36,12 +37,15 @@ void log_init(void) {
 }
 
 void log_set_level(enum log_level minimum) {
+    uint64_t flags = irq_save();
     if (minimum >= LOG_DEBUG && minimum <= LOG_FATAL) minimum_level = minimum;
+    irq_restore(flags);
 }
 
 void log_write(enum log_level level, const char *module, const char *format, ...) {
     static const char *const names[] = {"DEBUG", "INFO", "WARN", "ERROR", "FATAL"};
     if (level < LOG_DEBUG || level > LOG_FATAL || level < minimum_level) return;
+    uint64_t flags = irq_save();
     write("["); number(++sequence, 10); write("] [");
     write(names[level]); write("] ["); write(module ? module : "kernel"); write("] ");
     va_list arguments;
@@ -75,4 +79,5 @@ void log_write(enum log_level level, const char *module, const char *format, ...
 done:
     va_end(arguments);
     write("\n");
+    irq_restore(flags);
 }

@@ -146,6 +146,15 @@ check-resources-unit:
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/resource_test.c kernel/resource_core.c -o build/tests/resources
 	build/tests/resources
 
+.PHONY: check-scheduler check-scheduler-unit
+check-scheduler-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/scheduler_test.c kernel/process_core.c -o build/tests/scheduler
+	build/tests/scheduler
+
+check-scheduler: iso check-scheduler-unit check-processes-unit check-resources-unit
+	python3 scripts/check-kernel.py --scheduler
+
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader
 bootloader-iso: iso

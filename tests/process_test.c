@@ -4,8 +4,13 @@
 
 static struct process_manager s;
 static void running(unsigned int slot) {
-    if (s.tasks[s.current].info.state == PROCESS_RUNNING) s.tasks[s.current].info.state = PROCESS_READY;
-    s.current = slot; s.tasks[slot].info.state = PROCESS_RUNNING;
+    if (s.current == slot && s.tasks[slot].info.state == PROCESS_RUNNING) return;
+    for (unsigned int n = 0; n < THREAD_MAX * 2; ++n) {
+        if (s.tasks[s.current].info.state == PROCESS_RUNNING) s.tasks[s.current].info.state = PROCESS_READY;
+        int next = process_core_pick(&s, 0); assert(next >= 0);
+        if ((unsigned int)next == slot) { assert(process_core_queue_valid(&s)); return; }
+    }
+    assert(!"thread nao esta pronta");
 }
 int main(void) {
     assert(process_core_find(&s, 1) < 0 && process_core_pick(&s, 0) < 0);

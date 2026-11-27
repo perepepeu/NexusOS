@@ -40,6 +40,7 @@ static void schedule(void) {
     reap_stacks();
     int next = process_core_pick(&manager, timer_ticks());
     KASSERT(next >= 0); /* Idle deve estar pronto quando todas as demais bloqueiam. */
+    KASSERT(process_core_queue_valid(&manager));
     if ((unsigned int)next != old) {
         process_context_switch(&manager.tasks[old].context, manager.tasks[next].context);
         reap_stacks();
@@ -121,6 +122,55 @@ uint64_t thread_create(const char *name, void (*entry)(void *), void *argument) 
 uint64_t process_current_pid(void) { return manager.ready ? manager.tasks[manager.current].info.pid : 0; }
 uint64_t thread_current_tid(void) { return manager.ready ? manager.tasks[manager.current].info.tid : 0; }
 void process_on_tick(uint64_t now) { process_core_tick(&manager, now); }
+void process_preempt(void) {
+    if (!process_core_should_preempt(&manager)) return;
+    uint64_t flags = irq_save(); KASSERT(!(flags & (1u << 9)));
+    unsigned int old = manager.current;
+    manager.tasks[old].info.state = PROCESS_READY;
+    int next = process_core_pick(&manager, timer_ticks());
+    KASSERT(next >= 0 && process_core_queue_valid(&manager));
+    if ((unsigned int)next != old) {
+        ++manager.preemptions;
+        /* O frame IRQ permanece na pilha anterior. Ao retomar, IRETQ restaura
+         * todos os GPRs, RIP/RSP e RFLAGS. Nenhuma limpeza e feita no handler. */
+        process_context_switch(&manager.tasks[old].context, manager.tasks[next].context);
+    }
+}
+void process_preempt_disable(void) {
+    if (!manager.ready) return;
+    uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
+    KASSERT(manager.tasks[manager.current].preempt_depth != UINT32_MAX);
+    ++manager.tasks[manager.current].preempt_depth; irq_restore(flags);
+}
+void process_preempt_enable(void) {
+    if (!manager.ready) return;
+    uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
+    struct thread_control_block *t = &manager.tasks[manager.current];
+    KASSERT(t->preempt_depth); --t->preempt_depth;
+    if (!t->preempt_depth && t->reschedule_pending && process_core_should_preempt(&manager)) {
+        ++manager.preemptions; t->info.state = PROCESS_READY; schedule();
+    }
+    irq_restore(flags);
+}
+void scheduler_snapshot(struct scheduler_info *out) {
+    if (!out) return;
+    uint64_t flags = irq_save();
+    *out = (struct scheduler_info){manager.switches, manager.preemptions, manager.deferred_ticks,
+        manager.ready_count, SCHEDULER_QUANTUM_TICKS, manager.slice_ticks};
+    irq_restore(flags);
+}
+bool thread_suspend(uint64_t tid) {
+    if (!manager.ready) return false;
+    uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
+    bool self = tid == thread_current_tid();
+    bool ok = thread_core_suspend(&manager, tid);
+    if (ok && self) schedule();
+    irq_restore(flags); return ok;
+}
+bool thread_resume(uint64_t tid) {
+    uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
+    bool ok = thread_core_resume(&manager, tid); irq_restore(flags); return ok;
+}
 bool process_keyboard_block(void) {
     if (!manager.ready) return false;
     uint64_t flags = irq_save(); KASSERT(!(flags & (1u << 9)));
@@ -132,6 +182,7 @@ void process_yield(void) {
     if (!manager.ready) return;
     uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
     KASSERT(manager.tasks[manager.current].info.state == PROCESS_RUNNING);
+    KASSERT(!manager.tasks[manager.current].preempt_depth);
     manager.tasks[manager.current].info.state = PROCESS_READY;
     schedule(); irq_restore(flags);
 }
@@ -150,11 +201,13 @@ bool process_kill(uint64_t pid, int status) {
 }
 __attribute__((noreturn)) void process_exit(int status) {
     uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
+    KASSERT(!manager.tasks[manager.current].preempt_depth);
     KASSERT(manager.ready && process_core_finish(&manager, process_current_pid(), status));
     schedule(); PANIC(ERR_PROCESS, "Processo encerrado voltou a executar.");
 }
 __attribute__((noreturn)) void thread_exit(int status) {
     uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
+    KASSERT(!manager.tasks[manager.current].preempt_depth);
     KASSERT(manager.ready && thread_core_finish(&manager, thread_current_tid(), status));
     schedule(); PANIC(ERR_PROCESS, "Thread encerrada voltou a executar.");
 }
@@ -210,7 +263,9 @@ static void test_worker(void *argument) {
     uintptr_t value = (uintptr_t)argument;
     volatile uint64_t local = 0x123456789abcdef0ull ^ value;
     for (unsigned int i = 0; i < 3; ++i) {
+        uint64_t flags = irq_save();
         KASSERT(order_count < 12); order[order_count++] = (unsigned int)value;
+        irq_restore(flags);
         process_yield();
         KASSERT(local == (0x123456789abcdef0ull ^ value));
     }
@@ -225,7 +280,7 @@ static void group_worker(void *argument) {
     KASSERT(process_current_pid() == group_pid && thread_current_tid() != 0);
     if ((uintptr_t)argument == 4) KASSERT(group_buffer && group_buffer[0] == 0xa5);
     process_sleep(2);
-    thread_mask |= (unsigned int)(uintptr_t)argument;
+    __atomic_fetch_or(&thread_mask, (unsigned int)(uintptr_t)argument, __ATOMIC_RELAXED);
     if ((uintptr_t)argument == 1) thread_exit(11);
 }
 static void group_entry(void *argument) {
@@ -269,7 +324,7 @@ static void resource_worker(void *argument) {
     KASSERT(!process_resource_transfer(buffer, UINT64_MAX));
     KASSERT(process_resource_transfer(buffer, 1)); transferred = buffer;
     if (argument) KASSERT(thread_create("owned-sibling", sleep_worker, 0));
-    resources_ready = true;
+    __atomic_store_n(&resources_ready, true, __ATOMIC_RELEASE);
     if (argument) for (;;) process_sleep(100);
     /* Nenhum free explicito: recursos restantes pertencem ao PCB. */
 }
@@ -299,6 +354,7 @@ void process_selftest(bool guard_fault) {
     pmm_get_stats(&pa); vmm_get_stats(&va);
     KASSERT(pb.free_pages == pa.free_pages && vb.mapped_pages == va.mapped_pages && vb.table_pages == va.table_pages);
     order_count = 0;
+    process_preempt_disable(); /* Inspeciona pilhas antes de permitir a execucao dos workers. */
     uint64_t a = process_create("worker-a", test_worker, (void *)1);
     uint64_t b = process_create("worker-b", test_worker, (void *)2);
     KASSERT(a && b && a != b);
@@ -309,15 +365,17 @@ void process_selftest(bool guard_fault) {
     KASSERT(!vmm_translate(manager.tasks[slot].stack - 4096, &mapping));
     KASSERT(!vmm_translate(manager.tasks[slot].stack + STACK_PAGES * 4096, &mapping));
     KASSERT(vmm_translate(manager.tasks[slot].stack, &mapping) && mapping.flags == VMM_WRITE);
+    process_preempt_enable();
     int status;
     KASSERT(process_wait(a, &status) && status == 1);
     KASSERT(process_wait(b, &status) && status == 2);
     KASSERT(order_count == 6);
-    for (unsigned int i = 0; i < 6; ++i) KASSERT(order[i] == i % 2 + 1);
+    unsigned int seen_a = 0, seen_b = 0;
+    for (unsigned int i = 0; i < 6; ++i) { seen_a += order[i] == 1; seen_b += order[i] == 2; }
+    KASSERT(seen_a == 3 && seen_b == 3);
     KASSERT(!process_wait(a, &status) && !process_kill(1, -9));
     a = process_create("sleep-kill", sleep_worker, 0); KASSERT(a);
     process_yield();
-    KASSERT(manager.processes[process_core_find(&manager, a)].info.state == PROCESS_BLOCKED);
     KASSERT(process_kill(a, -9) && !process_kill(a, -9));
     KASSERT(process_wait(a, &status) && status == -9);
     thread_mask = 0;
@@ -329,7 +387,8 @@ void process_selftest(bool guard_fault) {
         resources_ready = false; transferred = 0;
         a = process_create("owned-resources", resource_worker, (void *)(uintptr_t)mode); KASSERT(a);
         if (mode) {
-            process_yield(); KASSERT(resources_ready && process_kill(a, -9));
+            while (!__atomic_load_n(&resources_ready, __ATOMIC_ACQUIRE)) process_yield();
+            KASSERT(process_kill(a, -9));
         }
         KASSERT(process_wait(a, &status) && status == (mode ? -9 : 0));
         KASSERT(process_resource_count(a) == 0 && transferred);
@@ -349,4 +408,66 @@ void process_selftest(bool guard_fault) {
     KASSERT(list[1].cpu_ticks > 0 && !process_kill(0, -9));
     log_info("test", "Idle: PID/TID 0, pilha propria, HLT, despertar e protecao OK.");
     log_info("test", "Processos: contexto, round-robin, sono, wait, kill, guardas e limpeza OK.");
+}
+
+volatile uint64_t scheduler_probe_a, scheduler_probe_b;
+volatile unsigned char scheduler_probe_stop;
+extern unsigned int process_preempt_register_test(uintptr_t second);
+static void preempt_spin(void *argument) { KASSERT(process_preempt_register_test((uintptr_t)argument)); }
+static void spin_ticks(uint64_t ticks) {
+    uint64_t start = timer_ticks();
+    while (timer_ticks() - start < ticks) __asm__ volatile ("pause" : : : "memory");
+}
+static void concurrent_memory(void *argument) {
+    uintptr_t value = (uintptr_t)argument;
+    for (unsigned int i = 0; i < 24; ++i) {
+        unsigned char *data = kmalloc(2057); KASSERT(data);
+        for (unsigned int j = 0; j < 2057; ++j) data[j] = (unsigned char)(j ^ i ^ value);
+        unsigned char *grown = krealloc(data, 4103); KASSERT(grown); data = grown;
+        for (unsigned int j = 0; j < 2057; ++j) KASSERT(data[j] == (unsigned char)(j ^ i ^ value));
+        void *map = process_map_pages(1, VMM_WRITE); KASSERT(map);
+        *(volatile uint64_t *)map = value + i;
+        if (!(i % 8)) spin_ticks(SCHEDULER_QUANTUM_TICKS + 1);
+        KASSERT(*(volatile uint64_t *)map == value + i);
+        KASSERT(process_resource_release(map)); kfree(data);
+    }
+    log_info("test", "Concorrencia de memoria: worker=%u OK.", (unsigned int)value);
+}
+void scheduler_selftest(void) {
+    struct pmm_stats pb, pa; struct vmm_stats vb, va; struct heap_stats hb, ha;
+    pmm_get_stats(&pb); vmm_get_stats(&vb); heap_get_stats(&hb);
+    scheduler_probe_a = scheduler_probe_b = scheduler_probe_stop = 0;
+    process_preempt_disable(); process_preempt_disable();
+    struct scheduler_info before, after; scheduler_snapshot(&before);
+    uint64_t a = process_create("cpu-a", preempt_spin, 0), b = process_create("cpu-b", preempt_spin, (void *)1);
+    KASSERT(a && b);
+    spin_ticks(SCHEDULER_QUANTUM_TICKS * 2 + 1);
+    KASSERT(!scheduler_probe_a && !scheduler_probe_b);
+    process_preempt_enable(); spin_ticks(SCHEDULER_QUANTUM_TICKS + 1);
+    KASSERT(!scheduler_probe_a && !scheduler_probe_b);
+    scheduler_snapshot(&after); KASSERT(after.preemptions == before.preemptions && after.deferred_ticks > before.deferred_ticks);
+    process_preempt_enable(); /* A troca pendente acontece antes deste retorno. */
+    spin_ticks(SCHEDULER_QUANTUM_TICKS * 4);
+    KASSERT(scheduler_probe_a && scheduler_probe_b);
+    struct thread_info threads[THREAD_MAX]; size_t count = thread_snapshot(threads, THREAD_MAX);
+    uint64_t tid = 0;
+    for (size_t i = 0; i < count; ++i) if (threads[i].pid == a) tid = threads[i].tid;
+    KASSERT(tid && thread_suspend(tid) && !thread_suspend(tid));
+    uint64_t stopped = scheduler_probe_a, moving = scheduler_probe_b;
+    spin_ticks(SCHEDULER_QUANTUM_TICKS * 3);
+    KASSERT(scheduler_probe_a == stopped && scheduler_probe_b > moving);
+    KASSERT(thread_resume(tid) && !thread_resume(tid)); spin_ticks(SCHEDULER_QUANTUM_TICKS * 4);
+    KASSERT(scheduler_probe_a > stopped);
+    __atomic_store_n(&scheduler_probe_stop, 1, __ATOMIC_RELEASE);
+    int status; KASSERT(process_wait(a, &status) && status == 0 && process_wait(b, &status) && status == 0);
+    scheduler_snapshot(&after); KASSERT(after.preemptions >= before.preemptions + 6);
+    KASSERT(!thread_suspend(0) && !thread_suspend(1) && !thread_resume(UINT64_MAX));
+    a = process_create("memory-a", concurrent_memory, (void *)1); b = process_create("memory-b", concurrent_memory, (void *)2);
+    KASSERT(a && b && process_wait(a, &status) && status == 0 && process_wait(b, &status) && status == 0);
+    pmm_get_stats(&pa); vmm_get_stats(&va); heap_get_stats(&ha);
+    KASSERT(pb.free_pages == pa.free_pages && pb.allocated_pages == pa.allocated_pages &&
+        vb.mapped_pages == va.mapped_pages && vb.table_pages == va.table_pages && hb.allocations == ha.allocations &&
+        hb.mapped_bytes == ha.mapped_bytes && hb.requested_bytes == ha.requested_bytes);
+    log_info("test", "Preempcao: CPU sem yield, 15 GPRs, RFLAGS/DF, quantum, suspensao e regioes criticas OK.");
+    log_info("test", "Escalonador: fila FIFO, concorrencia PMM/VMM/heap e ausencia de vazamentos OK.");
 }

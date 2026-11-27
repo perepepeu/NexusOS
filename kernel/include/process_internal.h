@@ -9,17 +9,26 @@ struct thread_control_block {
     void (*entry)(void *);
     void *argument;
     bool system;
+    unsigned int preempt_depth;
+    bool reschedule_pending;
 };
 struct process_manager {
     struct process_control_block processes[PROCESS_MAX];
     struct thread_control_block tasks[THREAD_MAX];
     unsigned int current;
     uint64_t next_pid, next_tid;
+    unsigned int ready_queue[THREAD_MAX], ready_head, ready_count, slice_ticks;
+    bool queued[THREAD_MAX];
+    uint64_t switches, preemptions, deferred_ticks;
     bool ready;
 };
 bool process_core_init(struct process_manager *s);
 bool process_core_add_idle(struct process_manager *s);
 bool process_core_has_ready(struct process_manager *s);
+bool process_core_should_preempt(struct process_manager *s);
+bool process_core_queue_valid(struct process_manager *s);
+bool thread_core_suspend(struct process_manager *s, uint64_t tid);
+bool thread_core_resume(struct process_manager *s, uint64_t tid);
 void process_core_input_wake(struct process_manager *s);
 int process_core_find(struct process_manager *s, uint64_t pid);
 int thread_core_find(struct process_manager *s, uint64_t tid);

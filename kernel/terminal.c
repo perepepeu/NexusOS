@@ -13,13 +13,14 @@
 #include <vmm.h>
 #include <heap.h>
 #include <process.h>
+#include <io.h>
 
 enum { LINE_SIZE = 128, HISTORY_SIZE = 8 };
 static const char prompt[] = "nexus> ";
 static char history[HISTORY_SIZE][LINE_SIZE];
 static unsigned int history_head, history_count;
 
-static void put(const char *text) { console_write(text); serial_write(text); }
+static void put(const char *text) { uint64_t flags = irq_save(); console_write(text); serial_write(text); irq_restore(flags); }
 
 static void number(uint64_t value, bool both) {
     char digits[21], text[2] = {0, 0};
@@ -132,14 +133,18 @@ static bool equal(const char *left, const char *right) {
 }
 
 static void redraw(const char *line, unsigned int cursor) {
+    uint64_t flags = irq_save();
     console_input(prompt, line, cursor);
     serial_write("\r\x1b[2K"); serial_write(prompt); serial_write(line);
     serial_write("\r\x1b["); number(sizeof prompt - 1 + cursor, false); serial_write("C");
+    irq_restore(flags);
 }
 
 static void clear_screen(void) {
+    uint64_t flags = irq_save();
     console_clear();
     serial_write("\x1b[2J\x1b[H");
+    irq_restore(flags);
 }
 
 static unsigned int history_slot(unsigned int position) {
@@ -162,7 +167,7 @@ static bool pid_argument(const char *text, uint64_t *pid) {
 static void process_summary(void) {
     struct process_info list[PROCESS_MAX];
     size_t count = process_snapshot(list, PROCESS_MAX);
-    put("Processos do kernel (cooperativos, ring 0)\nPID PPID ESTADO THREADS TICKS SAIDA NOME\n");
+    put("Processos do kernel (preemptivos, ring 0)\nPID PPID ESTADO THREADS TICKS SAIDA NOME\n");
     for (size_t i = 0; i < count; ++i) {
         number(list[i].pid, true); put(" "); number(list[i].parent, true); put(" ");
         put(process_state_name(list[i].state)); put(" "); number(list[i].threads, true); put(" "); number(list[i].cpu_ticks, true); put(" ");
@@ -182,6 +187,15 @@ static void thread_summary(void) {
 static void demo_process(void *argument) {
     (void)argument;
     for (unsigned int i = 0; i < 5; ++i) process_sleep(100);
+}
+static void scheduler_summary(void) {
+    struct scheduler_info s; scheduler_snapshot(&s);
+    put("Escalonador: Round Robin preemptivo\nPIT: 100 Hz\nQuantum: "); number(s.quantum_ticks, true);
+    put(" ticks ("); number(s.quantum_ticks * 1000 / SCHEDULER_PIT_HZ, true);
+    put(" ms)\nFila FIFO de prontas: "); number(s.ready, true);
+    put("\nTrocas de contexto: "); number(s.switches, true);
+    put("\nPreempcoes: "); number(s.preemptions, true);
+    put("\nTicks adiados em regioes criticas: "); number(s.deferred_ticks, true); put("\n");
 }
 
 static void save_history(const char *line) {
@@ -219,17 +233,18 @@ static void command(char *line, const char *bootloader, const char *boot_version
         || equal(name, "reboot") || equal(name, "shutdown")
         || equal(name, "memory") || equal(name, "meminfo") || equal(name, "memtest")
         || equal(name, "memmap") || equal(name, "pmm") || equal(name, "vmm") || equal(name, "heap")
-        || equal(name, "ps") || equal(name, "threads") || equal(name, "spawn");
+        || equal(name, "ps") || equal(name, "threads") || equal(name, "spawn") || equal(name, "sched");
     if (!known) { put("Comando desconhecido: "); put(name); put(". Digite help.\n"); return; }
     if (*args) { put("Uso: "); put(name); put(" (sem argumentos).\n"); return; }
     if (equal(name, "help")) {
         put("Comandos: help clear echo version uptime sysinfo history\n");
         put("Energia: reboot shutdown\n");
         put("Memoria: memory meminfo memmap pmm vmm heap memtest\n");
-        put("Processos: ps threads spawn kill PID wait PID\n");
+        put("Processos: ps threads spawn kill PID wait PID sched\n");
         put("Edicao: setas, Home/End, Delete, Backspace, historico Up/Down.\n");
         put("Ctrl+C cancela, Ctrl+U apaga a linha, Ctrl+L limpa a tela.\n");
     } else if (equal(name, "ps")) process_summary();
+    else if (equal(name, "sched")) scheduler_summary();
     else if (equal(name, "threads")) thread_summary();
     else if (equal(name, "spawn")) {
         uint64_t pid = process_create("demo", demo_process, 0);

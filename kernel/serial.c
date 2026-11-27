@@ -21,8 +21,10 @@ static void putc(char character) {
 }
 
 void serial_write(const char *message) {
+    uint64_t flags = irq_save();
     while (*message) {
         if (*message == '\n') putc('\r');
         putc(*message++);
     }
+    irq_restore(flags);
 }

@@ -80,7 +80,7 @@ def type_keyboard_test(monitor_path):
     chord("esc")
 
 
-def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=False, heap=False, memtest=False, processes=False, process_log=None):
+def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=False, heap=False, memtest=False, processes=False, process_log=None, scheduler=False):
     def chord(*keys):
         items = [(key, True) for key in keys] + [(key, False) for key in reversed(keys)]
         qmp_execute(monitor_path, "input-send-event", {"events": [
@@ -97,6 +97,14 @@ def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=
     def command(value):
         text(value); chord("ret")
 
+    if scheduler:
+        command("sched")
+        command("ps")
+        command("pmm")
+        command("vmm")
+        command("heap")
+        command("echo scheduler-ok")
+        return
     if processes:
         def created(number):
             deadline = time.monotonic() + 3
@@ -187,7 +195,7 @@ def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=
 
 def boot(mode, scenario, image, firmware, ram_mib=256):
     suffix = mode if scenario == "normal" else f"{scenario}-{mode}"
-    if scenario in ("memory", "pmm", "vmm", "heap", "memtest", "processes"): suffix = f"{scenario}-{ram_mib}-{mode}"
+    if scenario in ("memory", "pmm", "vmm", "heap", "memtest", "processes", "scheduler"): suffix = f"{scenario}-{ram_mib}-{mode}"
     log = Path(f"build/boot-{suffix}.log")
     exceptions = {"divide": (0, "Divide error", "0x0"),
                   "opcode": (6, "Invalid opcode", "0x0"),
@@ -216,6 +224,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
               b"\r\nheap-ok\r\n" if scenario == "heap" else
               b"\r\nmemtest-ok\r\n" if scenario == "memtest" else
               b"\r\nprocesses-ok\r\n" if scenario == "processes" else
+              b"\r\nscheduler-ok\r\n" if scenario == "scheduler" else
               b"Terminal pronto. Digite help.")
     with tempfile.TemporaryDirectory(prefix="nexus-qmp-") as directory:
         monitor_path = str(Path(directory) / "monitor.sock")
@@ -230,7 +239,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
         with log.open("wb") as output, subprocess.Popen(
                 command, stdout=output, stderr=subprocess.STDOUT) as process:
             try:
-                deadline = time.monotonic() + (50 if scenario == "processes" else 40 if scenario == "pmm" else 20)
+                deadline = time.monotonic() + (50 if scenario == "processes" else 40 if scenario in ("pmm", "scheduler") else 20)
                 injected = False
                 while marker not in log.read_bytes():
                     if process.poll() is not None or time.monotonic() >= deadline:
@@ -266,6 +275,10 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                     if (scenario == "processes" and not injected and
                             b"Terminal pronto. Digite help." in log.read_bytes()):
                         type_terminal_test(monitor_path, processes=True, process_log=log)
+                        injected = True
+                    if (scenario == "scheduler" and not injected and
+                            b"Terminal pronto. Digite help." in log.read_bytes()):
+                        type_terminal_test(monitor_path, scheduler=True)
                         injected = True
                     time.sleep(0.1)
                 # O guest deve permanecer ativo, inclusive apos um panic.
@@ -440,7 +453,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                      b"Threads: TIDs distintos, PID compartilhado, join e ultima thread OK.",
                      b"Recursos: heap automatico, paginas, mapas, destrutores, transferencia, kill e OOM OK.",
                      b"Idle: PID/TID 0, pilha propria, HLT, despertar e protecao OK.",
-                     b"Processos do kernel (cooperativos, ring 0)", b"PID PPID ESTADO THREADS TICKS SAIDA NOME",
+                     b"Processos do kernel (preemptivos, ring 0)", b"PID PPID ESTADO THREADS TICKS SAIDA NOME",
                      b"Threads do kernel", b"TID PID ESTADO TICKS SAIDA NOME", b"Uso: spawn (sem argumentos).",
                      b"Filho inexistente ou ja coletado.", b"Processo inexistente, encerrado ou protegido.",
                      b"Uso: kill PID (inteiro positivo).", b"Alocacoes ativas: 0"] + memory_baseline
@@ -450,6 +463,14 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
         if len(ids) != 2 or ids[0] == ids[1]: raise RuntimeError("PIDs de spawn invalidos")
         required += [b"Processo coletado: " + ids[0] + b" status=0", b"Processo encerrado: " + ids[1],
                      b"Processo coletado: " + ids[1] + b" status=-9"]
+    if scenario == "scheduler":
+        required += [b"Preempcao: CPU sem yield, 15 GPRs, RFLAGS/DF, quantum, suspensao e regioes criticas OK.",
+                     b"Escalonador: fila FIFO, concorrencia PMM/VMM/heap e ausencia de vazamentos OK.",
+                     b"Concorrencia de memoria: worker=1 OK.", b"Concorrencia de memoria: worker=2 OK.",
+                     b"Escalonador: Round Robin preemptivo", b"Quantum: 5 ticks (50 ms)",
+                     b"Alocacoes ativas: 0"] + memory_baseline
+        switches = re.search(rb"Preempcoes: (\d+)", text)
+        if not switches or int(switches[1]) < 6: raise RuntimeError(f"Preempcao nao confirmada; consulte {log}")
     if any(message not in text for message in required):
         raise RuntimeError(f"Diagnostico incompleto; consulte {log}")
     print(f"OK: {scenario}/{mode}, serial e framebuffer; log: {log}", flush=True)
@@ -470,12 +491,13 @@ def main():
     group.add_argument("--access", action="store_true", help="Testa acessos invalidos e diagnosticos do heap/CPU.")
     group.add_argument("--memtest", action="store_true", help="Testa comandos meminfo e memtest repetidos.")
     group.add_argument("--processes", action="store_true", help="Testa processos, contexto, terminal e guarda de pilha.")
+    group.add_argument("--scheduler", action="store_true", help="Testa preempcao sem yield, registradores e concorrencia.")
     parser.add_argument("--quick", action="store_true", help="Executa uma configuracao de RAM por cenario, mantendo BIOS/UEFI.")
     args = parser.parse_args()
     Path("build").mkdir(exist_ok=True)
     firmware = Path("/usr/share/OVMF/OVMF_CODE_4M.fd")
     if not firmware.is_file(): raise SystemExit("OVMF ausente: instale o pacote ovmf.")
-    scenarios = (("processes", "process-guard") if args.processes else ("memtest",) if args.memtest else ("access-null", "access-guard-low", "access-guard-high", "access-unmapped", "access-overflow",
+    scenarios = (("scheduler",) if args.scheduler else ("processes", "process-guard") if args.processes else ("memtest",) if args.memtest else ("access-null", "access-guard-low", "access-guard-high", "access-unmapped", "access-overflow",
                   "access-underflow", "access-freed", "access-doublefree", "access-badfree", "access-nx") if args.access else
                  ("heap",) if args.heap else ("vmm", "vmm-unmapped", "vmm-readonly", "vmm-nx") if args.vmm else
                  ("pmm",) if args.pmm else ("memory",) if args.memory else ("terminal", "terminal-limits") if args.terminal else
@@ -495,7 +517,7 @@ def main():
                 raise RuntimeError(result.stdout.decode(errors="replace"))
         for mode in ("bios", "uefi"):
             previous = 0
-            sizes = (128, 512, 5120) if args.memory or args.pmm or scenario in ("vmm", "heap", "memtest", "processes") else (256,)
+            sizes = (128, 512, 5120) if args.memory or args.pmm or scenario in ("vmm", "heap", "memtest", "processes", "scheduler") else (256,)
             for size in (sizes[:1] if args.quick else sizes):
                 detected = boot(mode, scenario, image, firmware, size)
                 if args.memory:

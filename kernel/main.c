@@ -214,12 +214,14 @@ void kmain(void) {
 
     if (!process_init()) PANIC(ERR_PROCESS, "Nao foi possivel iniciar o gerenciador de processos.");
     log_info("process", "Gerenciador pronto: PID 1, Idle PID 0; 32 PCBs/64 TCBs em ring 0.");
+    log_info("sched", "Round Robin preemptivo: PIT 100 Hz, quantum 5 ticks (50 ms).");
     struct pmm_stats process_pages; struct vmm_stats process_maps;
     pmm_get_stats(&process_pages); vmm_get_stats(&process_maps);
     log_info("process", "Base: alocadas=%llu mapeadas=%llu tabelas=%llu",
         (unsigned long long)process_pages.allocated_pages, (unsigned long long)process_maps.mapped_pages,
         (unsigned long long)process_maps.table_pages);
     if (boot_option("selftest=processes")) process_selftest(false);
+    if (boot_option("selftest=scheduler")) scheduler_selftest();
     if (boot_option("selftest=process-guard")) process_selftest(true);
     log_info("boot", "NexusOS: kernel inicial pronto. CPU em espera.");
     power_init(rsdp.response && !boot_option("selftest=power-fallback") ? rsdp.response->address : 0,

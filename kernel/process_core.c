@@ -3,6 +3,38 @@
 static void name_copy(char *out, const char *name) {
     for (size_t i = 0; i < PROCESS_NAME - 1 && name[i]; ++i) out[i] = name[i];
 }
+static void enqueue(struct process_manager *s, unsigned int slot) {
+    if (!s->tasks[slot].info.pid || s->tasks[slot].info.state != PROCESS_READY || s->queued[slot]) return;
+    s->ready_queue[(s->ready_head + s->ready_count) % THREAD_MAX] = slot;
+    ++s->ready_count; s->queued[slot] = true;
+}
+static void remove_ready(struct process_manager *s, unsigned int slot) {
+    if (!s->queued[slot]) return;
+    unsigned int count = 0;
+    for (unsigned int n = 0; n < s->ready_count; ++n) {
+        unsigned int entry = s->ready_queue[(s->ready_head + n) % THREAD_MAX];
+        if (entry != slot) s->ready_queue[(s->ready_head + count++) % THREAD_MAX] = entry;
+    }
+    s->ready_count = count; s->queued[slot] = false;
+}
+static void make_ready(struct process_manager *s, unsigned int slot) {
+    s->tasks[slot].info.state = PROCESS_READY;
+    s->tasks[slot].info.blocked_on = PROCESS_NOT_BLOCKED;
+    enqueue(s, slot);
+}
+bool process_core_queue_valid(struct process_manager *s) {
+    if (!s || !s->ready || s->ready_count > THREAD_MAX || s->ready_head >= THREAD_MAX) return false;
+    bool seen[THREAD_MAX] = {0};
+    for (unsigned int n = 0; n < s->ready_count; ++n) {
+        unsigned int slot = s->ready_queue[(s->ready_head + n) % THREAD_MAX];
+        if (slot >= THREAD_MAX || seen[slot] || !s->queued[slot] || !s->tasks[slot].info.pid ||
+                s->tasks[slot].info.state != PROCESS_READY) return false;
+        seen[slot] = true;
+    }
+    for (unsigned int i = 0; i < THREAD_MAX; ++i)
+        if (seen[i] != s->queued[i] || (s->tasks[i].info.pid && s->tasks[i].info.state == PROCESS_READY) != seen[i]) return false;
+    return true;
+}
 bool process_core_init(struct process_manager *s) {
     if (!s || s->ready) return false;
     *s = (struct process_manager){.ready = true, .next_pid = 2, .next_tid = 2};
@@ -62,6 +94,7 @@ static int new_thread(struct process_manager *s, const char *name, uint64_t pid)
     s->tasks[slot] = (struct thread_control_block){.info = {
         .pid = pid, .tid = s->next_tid++, .state = PROCESS_READY}};
     name_copy(s->tasks[slot].info.name, name);
+    enqueue(s, (unsigned int)slot);
     return slot;
 }
 int process_core_create(struct process_manager *s, const char *name) {
@@ -84,7 +117,7 @@ int thread_core_create(struct process_manager *s, const char *name) {
 bool process_core_block(struct process_manager *s, enum process_block_reason reason, uint64_t value, uint64_t now) {
     if (!s || !s->ready || s->tasks[s->current].info.state != PROCESS_RUNNING) return false;
     struct thread_control_block *t = &s->tasks[s->current];
-    if (!t->info.pid) return false;
+    if (!t->info.pid || t->preempt_depth) return false;
     if (reason == PROCESS_BLOCK_SLEEP) {
         if (!value || value > INT64_MAX) return false;
         t->sleep_start = now; t->sleep_ticks = value;
@@ -107,14 +140,15 @@ bool process_core_block(struct process_manager *s, enum process_block_reason rea
             if (n == THREAD_MAX - 1) return false;
         }
         t->waiting_for = value;
-    } else if (reason != PROCESS_BLOCK_INPUT) return false;
+    } else if (reason != PROCESS_BLOCK_INPUT && reason != PROCESS_BLOCK_SUSPEND) return false;
+    remove_ready(s, s->current);
     t->info.state = PROCESS_BLOCKED; t->info.blocked_on = reason; sync_states(s); return true;
 }
 static void wake_sleepers(struct process_manager *s, uint64_t now) {
     for (unsigned int i = 0; i < THREAD_MAX; ++i) {
         struct thread_control_block *t = &s->tasks[i];
         if (t->info.state == PROCESS_BLOCKED && t->info.blocked_on == PROCESS_BLOCK_SLEEP && now - t->sleep_start >= t->sleep_ticks) {
-            t->info.state = PROCESS_READY; t->info.blocked_on = PROCESS_NOT_BLOCKED;
+            make_ready(s, i);
         }
     }
 }
@@ -123,6 +157,7 @@ void process_core_tick(struct process_manager *s, uint64_t now) {
     struct thread_info *t = &s->tasks[s->current].info;
     if (t->state == PROCESS_RUNNING) {
         ++t->cpu_ticks;
+        if (s->slice_ticks < SCHEDULER_QUANTUM_TICKS) ++s->slice_ticks;
         int pcb = process_core_find(s, t->pid);
         if (pcb >= 0) ++s->processes[pcb].info.cpu_ticks;
     }
@@ -131,31 +166,54 @@ void process_core_tick(struct process_manager *s, uint64_t now) {
 int process_core_pick(struct process_manager *s, uint64_t now) {
     if (!s || !s->ready) return -1;
     wake_sleepers(s, now);
-    for (unsigned int n = 1; n <= THREAD_MAX; ++n) {
-        unsigned int i = (s->current + n) % THREAD_MAX;
-        if (s->tasks[i].info.state == PROCESS_READY && s->tasks[i].info.pid != 0) {
-            s->current = i; s->tasks[i].info.state = PROCESS_RUNNING; sync_states(s); return (int)i;
-        }
+    enqueue(s, s->current);
+    if (s->ready_count) {
+        unsigned int i = s->ready_queue[s->ready_head];
+        s->ready_head = (s->ready_head + 1) % THREAD_MAX; --s->ready_count; s->queued[i] = false;
+        if (s->current != i) ++s->switches;
+        s->tasks[s->current].reschedule_pending = false;
+        s->current = i; s->slice_ticks = 0; s->tasks[i].info.state = PROCESS_RUNNING;
+        sync_states(s); return (int)i;
     }
     int idle = thread_core_find(s, 0);
     if (idle >= 0 && s->tasks[idle].info.state == PROCESS_READY) {
-        s->current = (unsigned int)idle; s->tasks[idle].info.state = PROCESS_RUNNING;
+        if (s->current != (unsigned int)idle) ++s->switches;
+        s->tasks[s->current].reschedule_pending = false;
+        s->current = (unsigned int)idle; s->slice_ticks = 0; s->tasks[idle].info.state = PROCESS_RUNNING;
         sync_states(s); return idle;
     }
     sync_states(s); return -1;
 }
 bool process_core_has_ready(struct process_manager *s) {
-    if (!s || !s->ready) return false;
-    for (unsigned int i = 0; i < THREAD_MAX; ++i)
-        if (s->tasks[i].info.pid && s->tasks[i].info.state == PROCESS_READY) return true;
-    return false;
+    return s && s->ready && s->ready_count != 0;
+}
+bool process_core_should_preempt(struct process_manager *s) {
+    if (!s || !s->ready || s->tasks[s->current].info.state != PROCESS_RUNNING) return false;
+    struct thread_control_block *t = &s->tasks[s->current];
+    if (t->info.pid && s->slice_ticks < SCHEDULER_QUANTUM_TICKS) return false;
+    if (t->preempt_depth) { t->reschedule_pending = true; ++s->deferred_ticks; return false; }
+    if (!s->ready_count) { s->slice_ticks = 0; t->reschedule_pending = false; return false; }
+    return true;
+}
+bool thread_core_suspend(struct process_manager *s, uint64_t tid) {
+    int slot = thread_core_find(s, tid);
+    if (slot < 0 || s->tasks[slot].system || s->tasks[slot].preempt_depth ||
+            (s->tasks[slot].info.state != PROCESS_READY && s->tasks[slot].info.state != PROCESS_RUNNING)) return false;
+    remove_ready(s, (unsigned int)slot);
+    s->tasks[slot].info.state = PROCESS_BLOCKED; s->tasks[slot].info.blocked_on = PROCESS_BLOCK_SUSPEND;
+    sync_states(s); return true;
+}
+bool thread_core_resume(struct process_manager *s, uint64_t tid) {
+    int slot = thread_core_find(s, tid);
+    if (slot < 0 || s->tasks[slot].info.state != PROCESS_BLOCKED || s->tasks[slot].info.blocked_on != PROCESS_BLOCK_SUSPEND) return false;
+    make_ready(s, (unsigned int)slot); sync_states(s); return true;
 }
 void process_core_input_wake(struct process_manager *s) {
     if (!s || !s->ready) return;
     for (unsigned int i = 0; i < THREAD_MAX; ++i) {
         struct thread_info *t = &s->tasks[i].info;
         if (t->state == PROCESS_BLOCKED && t->blocked_on == PROCESS_BLOCK_INPUT) {
-            t->state = PROCESS_READY; t->blocked_on = PROCESS_NOT_BLOCKED;
+            make_ready(s, i);
         }
     }
     sync_states(s);
@@ -171,9 +229,10 @@ bool process_core_finish(struct process_manager *s, uint64_t pid, int status) {
         struct thread_control_block *t = &s->tasks[i];
         if (t->info.state == PROCESS_UNUSED) continue;
         if (t->info.pid == pid) {
+            remove_ready(s, i);
             t->info.state = PROCESS_TERMINATED; t->info.blocked_on = PROCESS_NOT_BLOCKED; t->info.exit_status = status;
         } else if (t->info.state == PROCESS_BLOCKED && t->info.blocked_on == PROCESS_BLOCK_WAIT && t->waiting_for == pid) {
-            t->info.state = PROCESS_READY; t->info.blocked_on = PROCESS_NOT_BLOCKED;
+            make_ready(s, i);
         }
     }
     sync_states(s); return true;
@@ -182,6 +241,7 @@ bool thread_core_finish(struct process_manager *s, uint64_t tid, int status) {
     int slot = thread_core_find(s, tid);
     if (slot < 0 || s->tasks[slot].system || s->tasks[slot].info.state == PROCESS_TERMINATED) return false;
     struct thread_info *t = &s->tasks[slot].info;
+    remove_ready(s, (unsigned int)slot);
     t->state = PROCESS_TERMINATED; t->blocked_on = PROCESS_NOT_BLOCKED; t->exit_status = status;
     bool alive = false;
     for (unsigned int i = 0; i < THREAD_MAX; ++i) {
@@ -189,7 +249,7 @@ bool thread_core_finish(struct process_manager *s, uint64_t tid, int status) {
         if (other->info.state == PROCESS_UNUSED || other->info.pid != t->pid) continue;
         if (other->info.state != PROCESS_TERMINATED) alive = true;
         if (other->info.state == PROCESS_BLOCKED && other->info.blocked_on == PROCESS_BLOCK_JOIN && other->waiting_for == tid) {
-            other->info.state = PROCESS_READY; other->info.blocked_on = PROCESS_NOT_BLOCKED;
+            make_ready(s, i);
         }
     }
     if (!alive) return process_core_finish(s, t->pid, status);

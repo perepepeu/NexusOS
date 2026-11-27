@@ -35,6 +35,8 @@ isr_%+vector:
 %endrep
 
 interrupt_common:
+    ; Frame completo permanece nesta pilha durante preempcao. A tarefa que
+    ; retoma este caminho recupera GPRs e RFLAGS originais via IRETQ.
     push rax
     push rbx
     push rcx

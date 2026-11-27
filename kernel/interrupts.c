@@ -130,7 +130,7 @@ static void pic_init(void) {
     pic_write(0x21, 0x04); pic_write(0xa1, 0x02);
     pic_write(0x21, 0x01); pic_write(0xa1, 0x01);
     pic_write(0x21, 0xfe); pic_write(0xa1, 0xff); /* Apenas IRQ0 habilitada. */
-    unsigned int divisor = 1193182 / 100;
+    unsigned int divisor = 1193182 / SCHEDULER_PIT_HZ;
     outb(0x43, 0x36);
     outb(0x40, divisor & 255);
     outb(0x40, divisor >> 8);
@@ -155,6 +155,7 @@ void interrupt_dispatch(struct interrupt_frame *frame) {
         if (irq == 1) keyboard_irq();
         if (irq >= 8) outb(0xa0, 0x20);
         outb(0x20, 0x20);
+        if (irq == 0) process_preempt(); /* EOI antes da troca: a proxima tarefa pode habilitar IRQs. */
         return;
     }
     if (frame->vector == 3) {

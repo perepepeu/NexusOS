@@ -5,8 +5,10 @@
 #include <stdint.h>
 
 enum { PROCESS_MAX = 32, THREAD_MAX = 64, PROCESS_NAME = 24 };
+enum { SCHEDULER_QUANTUM_TICKS = 5, SCHEDULER_PIT_HZ = 100 };
 enum process_state { PROCESS_UNUSED, PROCESS_READY, PROCESS_RUNNING, PROCESS_BLOCKED, PROCESS_TERMINATED };
-enum process_block_reason { PROCESS_NOT_BLOCKED, PROCESS_BLOCK_SLEEP, PROCESS_BLOCK_WAIT, PROCESS_BLOCK_JOIN, PROCESS_BLOCK_MIXED, PROCESS_BLOCK_INPUT };
+enum process_block_reason { PROCESS_NOT_BLOCKED, PROCESS_BLOCK_SLEEP, PROCESS_BLOCK_WAIT, PROCESS_BLOCK_JOIN, PROCESS_BLOCK_MIXED, PROCESS_BLOCK_INPUT, PROCESS_BLOCK_SUSPEND };
+struct scheduler_info { uint64_t switches, preemptions, deferred_ticks; unsigned int ready, quantum_ticks, slice_ticks; };
 struct process_info {
     uint64_t pid, parent, cpu_ticks;
     size_t threads;
@@ -23,7 +25,7 @@ struct thread_info {
     int exit_status;
     char name[PROCESS_NAME];
 };
-/* Processos ring 0 cooperativos; API fora de IRQ/NMI, em uma CPU.
+/* Processos ring 0 preemptivos; API fora de IRQ/NMI, em uma CPU.
  * Entry/argumento devem continuar validos ate a execucao terminar. */
 bool process_init(void);
 uint64_t process_create(const char *name, void (*entry)(void *), void *argument);
@@ -41,6 +43,13 @@ size_t process_snapshot(struct process_info *out, size_t capacity);
 size_t thread_snapshot(struct thread_info *out, size_t capacity);
 const char *process_state_name(enum process_state state);
 void process_on_tick(uint64_t now);
+void process_preempt(void); /* Somente IRQ0, apos EOI, com IRQs desabilitadas. */
+void process_preempt_disable(void);
+void process_preempt_enable(void);
+void scheduler_snapshot(struct scheduler_info *out);
+bool thread_suspend(uint64_t tid);
+bool thread_resume(uint64_t tid);
+void scheduler_selftest(void);
 /* Integracao com teclado: chamadas com IRQs desabilitadas; wake nao troca contexto. */
 bool process_keyboard_block(void);
 void process_keyboard_wake(void);

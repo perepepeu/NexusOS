@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <console.h>
+#include <io.h>
 
 /* Fonte 5x7 propria: cada linha usa os cinco bits inferiores. */
 static const uint8_t letters[26][7] = {
@@ -60,7 +61,7 @@ static void clear(void) {
     cursor_y = MARGIN;
 }
 
-void console_clear(void) {
+static void console_clear_unlocked(void) {
     if (screen) clear();
 }
 
@@ -68,7 +69,7 @@ static bool valid_channel(uint8_t size, uint8_t shift) {
     return size > 0 && size <= 8 && shift + size <= 32;
 }
 
-bool console_init(struct limine_framebuffer_response *response) {
+static bool console_init_unlocked(struct limine_framebuffer_response *response) {
     if (!response || !response->framebuffers) {
         return false;
     }
@@ -169,7 +170,7 @@ static void cell(uint64_t x_position, uint64_t y_position, char c) {
     }
 }
 
-void console_input(const char *prompt, const char *line, unsigned int cursor) {
+static void console_input_unlocked(const char *prompt, const char *line, unsigned int cursor) {
     if (!screen) return;
     uint64_t columns = (screen->width - 2 * MARGIN) / CELL_WIDTH;
     uint64_t prefix = 0, length = 0;
@@ -193,7 +194,7 @@ void console_input(const char *prompt, const char *line, unsigned int cursor) {
     cursor_x = MARGIN + caret * CELL_WIDTH;
 }
 
-void console_write(const char *text) {
+static void console_write_unlocked(const char *text) {
     if (!screen) return;
     if (input_caret) {
         cell(caret_x, caret_y, caret_character);
@@ -218,4 +219,16 @@ void console_write(const char *text) {
         cell(cursor_x, cursor_y, c);
         cursor_x += CELL_WIDTH;
     }
+}
+bool console_init(struct limine_framebuffer_response *response) {
+    uint64_t flags = irq_save(); bool ok = console_init_unlocked(response); irq_restore(flags); return ok;
+}
+void console_clear(void) {
+    uint64_t flags = irq_save(); console_clear_unlocked(); irq_restore(flags);
+}
+void console_input(const char *prompt, const char *line, unsigned int cursor) {
+    uint64_t flags = irq_save(); console_input_unlocked(prompt, line, cursor); irq_restore(flags);
+}
+void console_write(const char *text) {
+    uint64_t flags = irq_save(); console_write_unlocked(text); irq_restore(flags);
 }

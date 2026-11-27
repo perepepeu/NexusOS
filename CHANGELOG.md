@@ -2,6 +2,12 @@
 
 ## Em desenvolvimento
 
+- Round Robin preemptivo com fila FIFO e quantum de 5 ticks/50 ms no PIT de 100 Hz.
+- Troca apos EOI, preservando GPRs, pilha e RFLAGS pelo frame IRQ/IRETQ.
+- Suspensao/retomada de threads e adiamento aninhado de preempcao.
+- Protecao de estruturas, logs, console, serial e sequencias de energia.
+- Testes sem yield em Assembly, flags, concorrencia de memoria e filas com ASan/UBSan.
+
 - Processo Idle PID/TID 0, com PCB/TCB e pilha protegida permanentes.
 - Idle so executa sem trabalho pronto; teclado bloqueia leitores e os acorda por IRQ1.
 - Baseline de memoria inclui os recursos permanentes do Idle e e validado nas suites.
@@ -17,7 +23,7 @@
 - Transicoes de bloqueio validadas, com despertar somente pelo evento correspondente.
 
 - Gerenciador de processos do kernel com PID, pai e estados de execucao.
-- Pilhas RW/NX de 16 KiB com guardas, troca de contexto SysV e round-robin cooperativo.
+- Pilhas RW/NX de 16 KiB com guardas e base de troca de contexto SysV.
 - Sono pelo PIT, exit/wait, adocao de orfaos, kill e liberacao de pilhas fora da CPU.
 - Comandos ps, spawn, kill PID e wait PID; terminal cede CPU ao aguardar teclado.
 - Testes de estados/PIDs com ASan/UBSan e contexto/guardas/limpeza em BIOS/UEFI.
