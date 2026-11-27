@@ -54,6 +54,7 @@ __attribute__((noreturn)) void kernel_exception(const char *name,
         (void *)(uintptr_t)context->rsp);
     log_write(LOG_FATAL, "cpu", "RFLAGS=%p", (void *)(uintptr_t)context->rflags);
     log_write(LOG_FATAL, "cpu", "PID=%llu", (unsigned long long)process_current_pid());
+    log_write(LOG_FATAL, "cpu", "TID=%llu", (unsigned long long)thread_current_tid());
     if (context->vector == 14) {
         log_write(LOG_FATAL, "cpu", "CR2=%p", (void *)(uintptr_t)context->cr2);
         uint64_t error = context->error;

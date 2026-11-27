@@ -2,6 +2,10 @@
 
 ## Em desenvolvimento
 
+- PCBs separados de TCBs, PIDs/TIDs independentes e multiplas threads por processo.
+- Criacao/join/exit de threads, deteccao de ciclos de join e encerramento de grupos.
+- Comando threads; ps agrega estado e contadores do processo.
+
 - Estados canonicos READY/RUNNING/BLOCKED/TERMINATED e motivo separado de bloqueio.
 - Transicoes de bloqueio validadas, com despertar somente pelo evento correspondente.
 

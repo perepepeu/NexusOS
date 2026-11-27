@@ -162,9 +162,19 @@ static bool pid_argument(const char *text, uint64_t *pid) {
 static void process_summary(void) {
     struct process_info list[PROCESS_MAX];
     size_t count = process_snapshot(list, PROCESS_MAX);
-    put("Processos do kernel (cooperativos, ring 0)\nPID PPID ESTADO TICKS SAIDA NOME\n");
+    put("Processos do kernel (cooperativos, ring 0)\nPID PPID ESTADO THREADS TICKS SAIDA NOME\n");
     for (size_t i = 0; i < count; ++i) {
         number(list[i].pid, true); put(" "); number(list[i].parent, true); put(" ");
+        put(process_state_name(list[i].state)); put(" "); number(list[i].threads, true); put(" "); number(list[i].cpu_ticks, true); put(" ");
+        signed_number(list[i].exit_status); put(" "); put(list[i].name); put("\n");
+    }
+}
+static void thread_summary(void) {
+    struct thread_info list[THREAD_MAX];
+    size_t count = thread_snapshot(list, THREAD_MAX);
+    put("Threads do kernel\nTID PID ESTADO TICKS SAIDA NOME\n");
+    for (size_t i = 0; i < count; ++i) {
+        number(list[i].tid, true); put(" "); number(list[i].pid, true); put(" ");
         put(process_state_name(list[i].state)); put(" "); number(list[i].cpu_ticks, true); put(" ");
         signed_number(list[i].exit_status); put(" "); put(list[i].name); put("\n");
     }
@@ -209,17 +219,18 @@ static void command(char *line, const char *bootloader, const char *boot_version
         || equal(name, "reboot") || equal(name, "shutdown")
         || equal(name, "memory") || equal(name, "meminfo") || equal(name, "memtest")
         || equal(name, "memmap") || equal(name, "pmm") || equal(name, "vmm") || equal(name, "heap")
-        || equal(name, "ps") || equal(name, "spawn");
+        || equal(name, "ps") || equal(name, "threads") || equal(name, "spawn");
     if (!known) { put("Comando desconhecido: "); put(name); put(". Digite help.\n"); return; }
     if (*args) { put("Uso: "); put(name); put(" (sem argumentos).\n"); return; }
     if (equal(name, "help")) {
         put("Comandos: help clear echo version uptime sysinfo history\n");
         put("Energia: reboot shutdown\n");
         put("Memoria: memory meminfo memmap pmm vmm heap memtest\n");
-        put("Processos: ps spawn kill PID wait PID\n");
+        put("Processos: ps threads spawn kill PID wait PID\n");
         put("Edicao: setas, Home/End, Delete, Backspace, historico Up/Down.\n");
         put("Ctrl+C cancela, Ctrl+U apaga a linha, Ctrl+L limpa a tela.\n");
     } else if (equal(name, "ps")) process_summary();
+    else if (equal(name, "threads")) thread_summary();
     else if (equal(name, "spawn")) {
         uint64_t pid = process_create("demo", demo_process, 0);
         if (pid) { put("Processo criado: "); number(pid, true); put(" (demo, duracao 5s)\n"); }

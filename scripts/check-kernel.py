@@ -80,7 +80,7 @@ def type_keyboard_test(monitor_path):
     chord("esc")
 
 
-def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=False, heap=False, memtest=False, processes=False):
+def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=False, heap=False, memtest=False, processes=False, process_log=None):
     def chord(*keys):
         items = [(key, True) for key in keys] + [(key, False) for key in reversed(keys)]
         qmp_execute(monitor_path, "input-send-event", {"events": [
@@ -98,15 +98,24 @@ def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=
         text(value); chord("ret")
 
     if processes:
+        def created(number):
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                ids = re.findall(rb"Processo criado: (\d+)", process_log.read_bytes())
+                if len(ids) >= number: return ids[number - 1].decode()
+                time.sleep(0.03)
+            raise RuntimeError("spawn nao retornou PID")
         command("ps")
+        command("threads")
         command("spawn extra")
         command("spawn")
-        command("wait 5")
+        command("wait " + created(1))
         time.sleep(5.3)  # Aguarda o filho sem inundar a fila PS/2 enquanto o terminal bloqueia.
         command("spawn")
-        command("kill 6")
-        command("wait 6")
-        command("wait 6")
+        pid = created(2)
+        command("kill " + pid)
+        command("wait " + pid)
+        command("wait " + pid)
         command("kill 1")
         command("kill 99999")
         command("wait 1")
@@ -256,7 +265,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                         injected = True
                     if (scenario == "processes" and not injected and
                             b"Terminal pronto. Digite help." in log.read_bytes()):
-                        type_terminal_test(monitor_path, processes=True)
+                        type_terminal_test(monitor_path, processes=True, process_log=log)
                         injected = True
                     time.sleep(0.1)
                 # O guest deve permanecer ativo, inclusive apos um panic.
@@ -425,12 +434,16 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
             raise RuntimeError(f"Memtest falhou/repeticao deixou vazamentos; consulte {log}")
     if scenario == "processes":
         required += [b"Processos: contexto, round-robin, sono, wait, kill, guardas e limpeza OK.",
-                     b"Processos do kernel (cooperativos, ring 0)", b"PID PPID ESTADO TICKS SAIDA NOME",
-                     b"Uso: spawn (sem argumentos).", b"Processo criado: 5", b"Processo criado: 6",
-                     b"Processo coletado: 5 status=0", b"Processo encerrado: 6", b"Processo coletado: 6 status=-9",
+                     b"Threads: TIDs distintos, PID compartilhado, join e ultima thread OK.",
+                     b"Processos do kernel (cooperativos, ring 0)", b"PID PPID ESTADO THREADS TICKS SAIDA NOME",
+                     b"Threads do kernel", b"TID PID ESTADO TICKS SAIDA NOME", b"Uso: spawn (sem argumentos).",
                      b"Filho inexistente ou ja coletado.", b"Processo inexistente, encerrado ou protegido.",
                      b"Uso: kill PID (inteiro positivo).", b"Paginas alocadas: 1", b"Paginas mapeadas: 0",
                      b"Tabelas proprias: 1 paginas", b"Alocacoes ativas: 0"]
+        ids = re.findall(rb"Processo criado: (\d+)", text)
+        if len(ids) != 2 or ids[0] == ids[1]: raise RuntimeError("PIDs de spawn invalidos")
+        required += [b"Processo coletado: " + ids[0] + b" status=0", b"Processo encerrado: " + ids[1],
+                     b"Processo coletado: " + ids[1] + b" status=-9"]
     if any(message not in text for message in required):
         raise RuntimeError(f"Diagnostico incompleto; consulte {log}")
     print(f"OK: {scenario}/{mode}, serial e framebuffer; log: {log}", flush=True)

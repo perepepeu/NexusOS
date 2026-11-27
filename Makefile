@@ -9,6 +9,7 @@ KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.
 
 KERNEL_OBJECTS += build/kernel/memtest.o
 KERNEL_OBJECTS += build/kernel/process_core.o build/kernel/process.o build/kernel/process_switch.o
+KERNEL_OBJECTS += build/kernel/runtime.o
 
 .PHONY: check-toolchain
 check-toolchain:

@@ -13,7 +13,7 @@ static int fail_after = -1;
 extern void process_context_switch(uintptr_t *old, uintptr_t next);
 extern unsigned int process_register_test(void);
 
-static void release_stack(struct process_record *p) {
+static void release_stack(struct thread_control_block *p) {
     if (!p->stack) return;
     for (unsigned int j = 0; j < STACK_PAGES; ++j) {
         uint64_t physical;
@@ -23,7 +23,7 @@ static void release_stack(struct process_record *p) {
     p->stack = p->context = 0;
 }
 static void reap_stacks(void) {
-    for (unsigned int i = 1; i < PROCESS_MAX; ++i)
+    for (unsigned int i = 1; i < THREAD_MAX; ++i)
         if (i != manager.current && manager.tasks[i].info.state == PROCESS_TERMINATED) release_stack(&manager.tasks[i]);
 }
 static void schedule(void) {
@@ -39,19 +39,20 @@ static void schedule(void) {
 }
 __attribute__((noreturn)) static void trampoline(void) {
     reap_stacks();
-    struct process_record *p = &manager.tasks[manager.current];
+    struct thread_control_block *p = &manager.tasks[manager.current];
     irq_restore(1u << 9);
     p->entry(p->argument);
-    process_exit(0);
+    thread_exit(0);
 }
 bool process_init(void) {
     struct vmm_stats v;
     vmm_get_stats(&v);
-    if (manager.ready || !v.ready || v.window_size < (1ull << 31) + PROCESS_MAX * STACK_STRIDE) return false;
+    uint64_t flags = irq_save();
+    if (manager.ready || !v.ready || v.window_size < (1ull << 31) + THREAD_MAX * STACK_STRIDE) { irq_restore(flags); return false; }
     stack_window = v.window_base + (1ull << 31);
-    return process_core_init(&manager);
+    bool result = process_core_init(&manager); irq_restore(flags); return result;
 }
-uint64_t process_create(const char *name, void (*entry)(void *), void *argument) {
+static uint64_t create(const char *name, void (*entry)(void *), void *argument, bool thread) {
     if (!manager.ready || !name || !*name || !entry) return 0;
     uint64_t flags = irq_save();
     KASSERT(flags & (1u << 9));
@@ -73,17 +74,25 @@ uint64_t process_create(const char *name, void (*entry)(void *), void *argument)
         }
         irq_restore(flags); return 0;
     }
-    KASSERT(process_core_create(&manager, name) == slot);
-    struct process_record *p = &manager.tasks[slot];
+    int created = thread ? thread_core_create(&manager, name) : process_core_create(&manager, name);
+    if (created < 0) {
+        struct thread_control_block temporary = {.stack = stack}; release_stack(&temporary);
+        irq_restore(flags); return 0;
+    }
+    KASSERT(created == slot);
+    struct thread_control_block *p = &manager.tasks[slot];
     p->stack = stack; p->entry = entry; p->argument = argument;
     /* Seis callee-saved + RET; RSP%16=8 ao entrar no trampoline SysV. */
     uintptr_t *context = (uintptr_t *)(stack + STACK_PAGES * 4096 - 64);
     for (unsigned int i = 0; i < 8; ++i) context[i] = 0;
     context[6] = (uintptr_t)trampoline; p->context = (uintptr_t)context;
-    uint64_t pid = p->info.pid;
-    irq_restore(flags); return pid;
+    uint64_t id = thread ? p->info.tid : p->info.pid;
+    irq_restore(flags); return id;
 }
+uint64_t process_create(const char *name, void (*entry)(void *), void *argument) { return create(name, entry, argument, false); }
+uint64_t thread_create(const char *name, void (*entry)(void *), void *argument) { return create(name, entry, argument, true); }
 uint64_t process_current_pid(void) { return manager.ready ? manager.tasks[manager.current].info.pid : 0; }
+uint64_t thread_current_tid(void) { return manager.ready ? manager.tasks[manager.current].info.tid : 0; }
 void process_on_tick(uint64_t now) { process_core_tick(&manager, now); }
 void process_yield(void) {
     if (!manager.ready) return;
@@ -110,23 +119,50 @@ __attribute__((noreturn)) void process_exit(int status) {
     KASSERT(manager.ready && process_core_finish(&manager, process_current_pid(), status));
     schedule(); PANIC(ERR_PROCESS, "Processo encerrado voltou a executar.");
 }
+__attribute__((noreturn)) void thread_exit(int status) {
+    uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
+    KASSERT(manager.ready && thread_core_finish(&manager, thread_current_tid(), status));
+    schedule(); PANIC(ERR_PROCESS, "Thread encerrada voltou a executar.");
+}
 bool process_wait(uint64_t child, int *status) {
     if (!manager.ready) return false;
     uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
-    int slot = process_core_find(&manager, child);
-    if (slot <= 0 || (unsigned int)slot == manager.current ||
-            manager.tasks[slot].info.parent != process_current_pid()) { irq_restore(flags); return false; }
-    while (manager.tasks[slot].info.state != PROCESS_TERMINATED) {
+    for (;;) {
+        int slot = process_core_find(&manager, child);
+        if (slot < 0 || manager.processes[slot].system || child == process_current_pid() ||
+                manager.processes[slot].info.parent != process_current_pid()) { irq_restore(flags); return false; }
+        if (manager.processes[slot].info.state == PROCESS_TERMINATED) break;
         KASSERT(process_core_block(&manager, PROCESS_BLOCK_WAIT, child, timer_ticks()));
         schedule();
     }
     reap_stacks(); bool result = process_core_collect(&manager, child, status);
     irq_restore(flags); return result;
 }
+bool thread_join(uint64_t tid, int *status) {
+    if (!manager.ready) return false;
+    uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
+    for (;;) {
+        int slot = thread_core_find(&manager, tid);
+        if (slot < 0 || (unsigned int)slot == manager.current || manager.tasks[slot].system ||
+                manager.tasks[slot].info.pid != process_current_pid()) { irq_restore(flags); return false; }
+        if (manager.tasks[slot].info.state == PROCESS_TERMINATED) break;
+        if (!process_core_block(&manager, PROCESS_BLOCK_JOIN, tid, timer_ticks())) { irq_restore(flags); return false; }
+        schedule();
+    }
+    reap_stacks(); bool result = thread_core_collect(&manager, tid, status);
+    irq_restore(flags); return result;
+}
 size_t process_snapshot(struct process_info *out, size_t capacity) {
     if (!out || !manager.ready) return 0;
     uint64_t flags = irq_save(); size_t count = 0;
     for (unsigned int i = 0; i < PROCESS_MAX && count < capacity; ++i)
+        if (manager.processes[i].used) out[count++] = manager.processes[i].info;
+    irq_restore(flags); return count;
+}
+size_t thread_snapshot(struct thread_info *out, size_t capacity) {
+    if (!out || !manager.ready) return 0;
+    uint64_t flags = irq_save(); size_t count = 0;
+    for (unsigned int i = 0; i < THREAD_MAX && count < capacity; ++i)
         if (manager.tasks[i].info.state != PROCESS_UNUSED) out[count++] = manager.tasks[i].info;
     irq_restore(flags); return count;
 }
@@ -144,6 +180,26 @@ static void test_worker(void *argument) {
     process_exit((int)value);
 }
 static void sleep_worker(void *argument) { (void)argument; for (;;) process_sleep(100); }
+static volatile unsigned int thread_mask;
+static uint64_t group_pid;
+static void group_worker(void *argument) {
+    KASSERT(process_current_pid() == group_pid && thread_current_tid() != 0);
+    process_sleep(2);
+    thread_mask |= (unsigned int)(uintptr_t)argument;
+    if ((uintptr_t)argument == 1) thread_exit(11);
+}
+static void group_entry(void *argument) {
+    (void)argument; group_pid = process_current_pid();
+    uint64_t a = thread_create("thread-a", group_worker, (void *)1);
+    uint64_t b = thread_create("thread-b", group_worker, (void *)2);
+    KASSERT(a && b && a != b && a != thread_current_tid());
+    int status;
+    KASSERT(!thread_join(thread_current_tid(), 0));
+    KASSERT(thread_join(a, &status) && status == 11);
+    KASSERT(thread_join(b, &status) && status == 0 && !thread_join(b, 0));
+    KASSERT(thread_create("survivor", group_worker, (void *)4));
+    /* Retorno termina apenas esta thread; survivor mantem o PCB vivo. */
+}
 static void guard_worker(void *argument) {
     uint64_t address = (uintptr_t)argument;
     log_info("test", "Pilha de processo: guarda em %p PID=%llu", (void *)(uintptr_t)address,
@@ -167,7 +223,9 @@ void process_selftest(bool guard_fault) {
     uint64_t b = process_create("worker-b", test_worker, (void *)2);
     KASSERT(a && b && a != b);
     struct vmm_mapping mapping;
-    int slot = process_core_find(&manager, a);
+    int slot = -1;
+    for (unsigned int i = 0; i < THREAD_MAX; ++i) if (manager.tasks[i].info.pid == a) { slot = (int)i; break; }
+    KASSERT(slot > 0);
     KASSERT(!vmm_translate(manager.tasks[slot].stack - 4096, &mapping));
     KASSERT(!vmm_translate(manager.tasks[slot].stack + STACK_PAGES * 4096, &mapping));
     KASSERT(vmm_translate(manager.tasks[slot].stack, &mapping) && mapping.flags == VMM_WRITE);
@@ -179,9 +237,13 @@ void process_selftest(bool guard_fault) {
     KASSERT(!process_wait(a, &status) && !process_kill(1, -9));
     a = process_create("sleep-kill", sleep_worker, 0); KASSERT(a);
     process_yield();
-    KASSERT(manager.tasks[process_core_find(&manager, a)].info.state == PROCESS_BLOCKED);
+    KASSERT(manager.processes[process_core_find(&manager, a)].info.state == PROCESS_BLOCKED);
     KASSERT(process_kill(a, -9) && !process_kill(a, -9));
     KASSERT(process_wait(a, &status) && status == -9);
+    thread_mask = 0;
+    a = process_create("thread-group", group_entry, 0); KASSERT(a);
+    KASSERT(process_wait(a, &status) && status == 0 && thread_mask == 7);
+    log_info("test", "Threads: TIDs distintos, PID compartilhado, join e ultima thread OK.");
     uint64_t start = timer_ticks(); process_sleep(2); KASSERT(timer_ticks() - start >= 2);
     pmm_get_stats(&pa); vmm_get_stats(&va);
     KASSERT(pb.free_pages == pa.free_pages && pb.allocated_pages == pa.allocated_pages &&

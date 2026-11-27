@@ -652,12 +652,17 @@ BIOS/UEFI com 128, 512 e 5120 MiB.
 
 `kernel/include/process.h` oferece criacao, yield, sono em ticks do PIT,
 encerramento, espera por filho e consulta de processos. O PID 1 representa o
-kernel/terminal na pilha inicial. Existem 32 slots no total; novos PIDs sao
-monotonicos e nao sao reutilizados quando um slot e liberado.
+kernel/terminal na pilha inicial. Existem 32 PCBs e 64 TCBs no total; novos PIDs sao
+monotonicos e nao sao reutilizados quando um slot e liberado. PCB agrupa as
+threads de um processo; TCB guarda TID, estado, contexto e pilha de uma thread.
+`thread_create()` cria outra thread no PID atual, `thread_join()` espera por
+seu TID e `thread_exit()` termina somente a thread atual. PIDs e TIDs possuem
+contadores independentes. O escalonador escolhe TCBs, enquanto `ps` agrega
+estado, ticks e quantidade de threads por PCB. `threads` lista os TCBs.
 
 Cada processo criado recebe uma pilha RW/NX de 16 KiB, com uma pagina ausente
 antes e outra depois. As pilhas ocupam o intervalo reservado
-`[window_base + 2 GiB, window_base + 2 GiB + 32 * 24 KiB)`, separado do heap e
+`[window_base + 2 GiB, window_base + 2 GiB + 64 * 24 KiB)`, separado do heap e
 do memtest. Falhas parciais de alocacao desfazem os mapas e devolvem os frames.
 A troca em Assembly preserva os registradores callee-saved e o RSP conforme
 a ABI SysV; o contexto de cada processo restaura seu estado de interrupcoes.
@@ -674,8 +679,10 @@ Um processo que nunca cede a CPU pode bloquear o restante do sistema.
 Estados: READY, RUNNING, BLOCKED e TERMINATED. O campo `blocked_on` distingue
 sono pelo PIT de espera por filho; ambos sao BLOCKED e so voltam a READY
 quando sua condicao e satisfeita. Ao retornar da funcao de
-entrada, o processo termina com status 0; `process_exit(status)` informa outro
-resultado. A pilha e liberada somente depois de sair de seu contexto. O registro
+entrada, a thread termina com status 0. O processo continua vivo enquanto houver
+outra thread ativa. `process_exit(status)` e `kill PID` encerram o grupo inteiro.
+`thread_join()` recusa espera por si mesmo, outro PID e ciclos entre threads.
+A pilha e liberada somente depois de sair de seu contexto. O registro
 TERMINATED e o status permanecem ate o pai chamar `process_wait(pid, &status)`.
 Filhos orfaos sao adotados pelo PID 1. Sem wait, zombies ocupam slots, mesmo
 quando suas pilhas ja foram devolvidas. O PID 1 e protegido contra kill.
@@ -691,7 +698,7 @@ wait 2
 make check-processes
 ```
 
-`ps` mostra PID, pai, estado, ticks atribuidos enquanto RUNNING, status e nome.
+`ps` mostra PID, pai, estado, quantidade de threads, ticks atribuidos enquanto RUNNING, status e nome.
 Esses ticks incluem o tempo em que o terminal aguarda IRQs e nao sao uma medicao
 precisa de utilizacao de CPU. `spawn` inicia uma demo silenciosa; `kill PID`
 encerra um processo fora da CPU com status -9; `wait PID` espera/coleta um filho.
