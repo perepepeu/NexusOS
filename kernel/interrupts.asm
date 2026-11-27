@@ -1,6 +1,7 @@
 bits 64
 section .text
 extern interrupt_dispatch
+extern process_user_return
 global gdt_load
 
 ; RDI aponta para GDTR; recarrega CS por retorno distante e carrega TR.
@@ -60,6 +61,8 @@ interrupt_common:
     mov rbx, rsp
     and rsp, -16
     call interrupt_dispatch
+    mov rdi, rbx
+    call process_user_return ; Valida o retorno apos EOI, inclusive no caminho de IRQ.
     mov rsp, rbx
     mov ax, 0x10
     test byte [rsp+144], 3 ; CS no interrupt_frame.

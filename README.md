@@ -174,13 +174,15 @@ interrupcoes mascaraveis desabilitadas.
 A GDT propria contem segmentos ring 0 de codigo (`0x08`), dados (`0x10`) e
 um TSS de 64 bits (`0x18`). O kernel recarrega os seletores e TR. O TSS reserva
 pilhas de 16 KiB independentes para double fault (IST1), NMI (IST2) e RSP0.
-Ainda nao ha segmentos ou transicoes para processos em ring 3.
+Ha tambem segmentos DPL3 (`0x2b`/`0x33`); o escalonador atualiza RSP0 para a
+pilha de kernel da thread ativa. Veja Kernel Mode e User Mode abaixo.
 
-A IDT contem 256 interrupt gates, acessiveis apenas pelo kernel. Os stubs
+A IDT contem 256 interrupt gates; apenas INT80 permite invocacao por Ring 3. Os stubs
 Assembly normalizam o codigo de erro, preservam os 15 registradores gerais,
 limpam DF para chamar C e alinham a pilha ao ABI. O retorno usa `iretq` para
 restaurar o contexto e RFLAGS. `INT3` registra o breakpoint e retorna; as demais
-excecoes param o kernel com nome, vetor, codigo de erro, RIP, RSP e RFLAGS.
+excecoes em CPL0 param o kernel com nome, vetor, codigo de erro, RIP, RSP e RFLAGS.
+Excecoes de processos CPL3 encerram o processo, preservando o kernel.
 Page fault tambem informa CR2. Double fault usa IST1 e verifica a pilha utilizada.
 
 O PIC 8259 e remapeado para os vetores `32-47`. A inicializacao libera IRQ0;
@@ -513,7 +515,8 @@ desfaz as tabelas parciais e preserva os mapeamentos anteriores.
 Alteracoes invalidam a TLB com `invlpg`; a remocao de tabelas intermediarias
 tambem recarrega CR3 antes de devolver as paginas ao PMM. As operacoes sao
 serializadas com interrupcoes desabilitadas em uma CPU. Nao ha PCID, LA57,
-SMP/TLB shootdown, ring 3, espacos por processo ou swap. O caminho exige
+SMP/TLB shootdown ou swap. O gerenciador de espacos por processo adiciona
+mapas de usuario privados e troca CR3 ao escalonar. O caminho exige
 suporte a NX e preserva as tabelas existentes sem redesenhar o HHDM.
 
 ```sh
@@ -743,11 +746,11 @@ tabelas e o heap do kernel e nao sao atribuidos automaticamente ao chamador.
 Objetos compartilhados entre PIDs precisam de transferencia ou de um dono
 com vida util suficiente; nao ha garbage collector ou contagem geral de referencias.
 
-Esta etapa executa callbacks confiaveis em ring 0, na mesma CR3 e memoria do
-kernel, em uma CPU. Nao implementa executaveis ELF, fork/exec, syscalls, ring 3,
-isolamento por processo, sinais ou SMP. Uma excecao em um processo
-do kernel para o sistema inteiro; o panic registra seu PID. A API nao deve ser
-chamada em IRQ/NMI ou com interrupcoes desabilitadas.
+`process_create` executa callbacks confiaveis em ring 0, na mesma CR3 e memoria
+do kernel, em uma CPU. Uma excecao em um processo do kernel para o sistema
+inteiro; o panic registra seu PID. Para executar codigo em Ring 3 com memoria
+privada, use `process_create_user`, descrita abaixo. As APIs publicas de tarefas
+nao devem ser chamadas em IRQ/NMI ou com interrupcoes desabilitadas.
 
 Os testes ASan/UBSan verificam estados, round-robin, sono com wrap do contador,
 wait, adocao de orfaos, esgotamento dos slots e milhares de ciclos de PIDs.
@@ -797,7 +800,64 @@ memoria alocam e alteram dados durante trocas pelo PIT e verificam que
 PMM/VMM/heap voltam ao baseline ao terminar. Logs concorrentes sao validados
 pela sequencia serial e o console continua legivel.
 
+## Kernel Mode e User Mode
+
+A GDT possui codigo/dados DPL3 (CS=0x2b, SS=0x33). Cada thread possui pilha de
+kernel RW/NX de 16 KiB com guardas; o escalonador atualiza TSS.RSP0 e CR3 antes
+de trocar o contexto. IRETQ inicia o programa em CPL3 com IF=1 e IOPL=0.
+Interrupcoes, excecoes e INT80 retornam ao kernel pela pilha indicada no TSS.
+Os registradores gerais e bases FS/GS iniciais sao zerados, exceto o argumento
+escalar explicito do programa.
+
+Cada processo de usuario recebe PML4/PDPT/PD/PT privados na metade baixa,
+sem mapas de identidade herdados. Paginas novas sao zeradas; codigo e RX,
+dados/pilha RW-NX, sem W+X. A metade alta compartilha os mapas supervisor do
+kernel, HHDM, heap e pilhas de kernel. Nao existe API de usuario para mapear
+frames fisicos arbitrarios. Destruicao libera paginas e tabelas privadas
+somente depois de sair da CR3 e pilha do processo encerrado.
+
+`process_create_user(nome, imagem, tamanho, offset_entrada, argumento)` carrega
+uma imagem plana fornecida pelo kernel, de ate 64 KiB. Enderecos: codigo
+0x400000, dados 0x600000 e pilha 0x800000..0x804000. O limite do espaco privado
+e 64 paginas de dados (256 KiB, sem contar tabelas). A pilha inicial fica em
+0x803ff8, sem endereco de retorno: o programa deve chamar exit.
+
+A ABI inicial usa `INT 0x80`, numero em RAX, argumento escalar em RDI e retorno
+em RAX: exit=0, yield=1, getpid=2, gettid=3, ticks=4. Numero desconhecido retorna
+-38. Nao ha ponteiros/buffers de usuario nessas chamadas. SYSCALL/SYSENTER
+nao configurados sao desabilitados; IOPL/TSS negam acesso a portas. FPU/SIMD
+provocam #NM e encerramento, pois seu contexto ainda nao e salvo.
+
+Excecoes originadas em CPL3 encerram o processo com status `-(256 + vetor)`;
+por exemplo, page fault retorna -270. O log registra PID, vetor, erro, RIP e
+CR2. Falhas em CPL0 continuam fatais. NMI, double fault e machine check tambem
+permanecem fatais. O pai pode coletar o status com wait; o kernel continua.
+
+```sh
+make check-user
+# No terminal: spawnuser, ps, wait PID, meminfo
+```
+
+`spawnuser` executa uma demonstracao real em CPL3 que termina com status 42.
+`ps` indica R0/R3. Os testes BIOS/UEFI em 128, 512 e 5120 MiB verificam dois
+processos preemptivos com dados distintos no mesmo endereco virtual, chamadas
+INT80, limpeza apos exit e rollback quando falta pilha de kernel. Outros 26
+testes provocam acessos ao kernel/HHDM, violacoes RX/NX, guardas, instrucoes
+privilegiadas, excecoes, tentativa de IRET para Ring 0 e pilha de usuario
+invalida (excecao, INT80 e retorno de IRQ). O retorno a Ring 3 valida seletores,
+RIP, RSP e flags antes do IRETQ. Uma vitima continua executando quando outro PID tenta ler sua pagina
+privada; o terminal permanece funcional e os contadores de memoria retornam
+ao baseline. O nucleo de enderecamento tambem e testado com ASan/UBSan,
+incluindo OOM, limites e tentativa de destruir a CR3 ativa.
+
+Ainda nao ha loader ELF, arquivos executaveis externos, fork/exec, sinais,
+syscalls para criar threads de usuario, TLS, FPU/SIMD ou SMP. Cada processo
+Ring 3 inicia uma thread; as multiplas threads existentes continuam disponiveis
+para processos do kernel. As protecoes descritas cobrem acessos arquiteturais
+pela CPU, sem promessa de protecao contra canais laterais.
+
 Referencias oficiais:
+- https://cdrdv2-public.intel.com/843827/253665-sdm-vol-1-dec-24.pdf
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1
 - https://github.com/Limine-Bootloader/Limine/blob/v12.11.1/USAGE.md
 - https://github.com/Limine-Bootloader/Limine/blob/v12.11.1/CONFIG.md

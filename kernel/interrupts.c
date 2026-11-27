@@ -178,13 +178,16 @@ void interrupt_dispatch(struct interrupt_frame *frame) {
         if (irq == 0) process_preempt(); /* EOI antes da troca: a proxima tarefa pode habilitar IRQs. */
         return;
     }
+    uintptr_t cr2;
+    __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+    /* NMI, double fault e machine check continuam fatais mesmo durante Ring 3. */
+    if (frame->vector < 32 && frame->vector != 2 && frame->vector != 8 && frame->vector != 18 &&
+        process_user_fault(frame, cr2)) return;
     if (frame->vector == 3) {
         ++breakpoints;
         log_info("idt", "Breakpoint INT3 tratado; retornando por IRETQ.");
         return;
     }
-    uintptr_t cr2;
-    __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
     if (frame->vector == 8) {
         KASSERT((uintptr_t)frame >= (uintptr_t)double_fault_stack &&
             (uintptr_t)frame < (uintptr_t)(double_fault_stack + sizeof double_fault_stack));

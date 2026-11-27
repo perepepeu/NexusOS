@@ -2,6 +2,11 @@
 
 ## Em desenvolvimento
 
+- Excecoes em CPL3 encerram somente o PID culpado; CPL0 e falhas criticas continuam fatais.
+- 26 probes reais de protecao, incluindo kernel/HHDM, RX/NX, I/O, Ring 0 e pilha invalida.
+- Validacao de seletores, RIP/RSP e flags antes do retorno a Ring 3, apos EOI nas IRQs.
+- Isolamento entre PIDs, paginas zeradas e recursos restaurados apos exit/fault.
+
 - Execucao real em Ring 3 por IRETQ, entrada INT80 e troca de CR3 por processo.
 - Chamadas exit/yield/getpid/gettid/ticks; comando spawnuser e exibicao R0/R3 em ps.
 - Teste de dois processos no mesmo endereco virtual com dados distintos e limpeza integral.

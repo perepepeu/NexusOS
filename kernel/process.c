@@ -329,6 +329,33 @@ bool process_user_syscall(struct interrupt_frame *frame) {
     }
     return true;
 }
+static struct { uint64_t pid, vector, error, cr2; } last_user_fault;
+void process_user_return(struct interrupt_frame *frame) {
+    if (!(frame->cs & 3)) return;
+    /* RSP e flags vem do usuario. Nao deixar um IRETQ invalido provocar uma
+     * excecao em CPL0. Esta validacao ocorre apos atender/acknowledge da IRQ. */
+    if (frame->cs != USER_CS || frame->ss != USER_DS || frame->rip >= USER_ADDRESS_END ||
+            frame->rsp >= USER_ADDRESS_END || (frame->rflags & ((3ull << 12) | (1ull << 14) | (1ull << 17)))) {
+        frame->vector = 13; frame->error = 0;
+        log_warn("user", "Retorno Ring 3 invalido: PID=%llu; processo sera encerrado.", (unsigned long long)process_current_pid());
+        KASSERT(process_user_fault(frame, 0));
+    }
+}
+bool process_user_fault(struct interrupt_frame *frame, uint64_t cr2) {
+    if ((frame->cs & 3) != 3 || !manager.ready) return false;
+    int slot = process_core_find(&manager, process_current_pid());
+    KASSERT(slot >= 0 && manager.processes[slot].info.user_mode);
+    struct thread_control_block *t = &manager.tasks[manager.current];
+    KASSERT((uintptr_t)frame >= t->stack && (uintptr_t)(frame + 1) <= t->stack + STACK_PAGES * 4096);
+    KASSERT(interrupts_kernel_stack() == t->stack + STACK_PAGES * 4096);
+    if (frame->vector != 14) cr2 = 0; /* CR2 so pertence ao diagnostico de #PF. */
+    last_user_fault.pid = process_current_pid(); last_user_fault.vector = frame->vector;
+    last_user_fault.error = frame->error; last_user_fault.cr2 = cr2;
+    log_warn("user", "Processo encerrado: PID=%llu vetor=%u erro=%p RIP=%p CR2=%p",
+        (unsigned long long)process_current_pid(), (unsigned int)frame->vector,
+        (void *)(uintptr_t)frame->error, (void *)(uintptr_t)frame->rip, (void *)(uintptr_t)cr2);
+    terminate_current(-(256 + (int)frame->vector));
+}
 extern const unsigned char user_valid_start[], user_valid_end[];
 uint64_t process_user_demo(void) {
     return process_create_user("user-demo", user_valid_start, (uintptr_t)user_valid_end - (uintptr_t)user_valid_start, 0, 42);
@@ -338,6 +365,9 @@ void user_mode_selftest(void) {
     pmm_get_stats(&before); vmm_get_stats(&vb);
     size_t bytes = (uintptr_t)user_valid_end - (uintptr_t)user_valid_start;
     KASSERT(!process_create_user("bad", user_valid_start, 0, 0, 0));
+    fail_after = 0; KASSERT(!process_create_user("oom-stack", user_valid_start, bytes, 0, 0)); fail_after = -1;
+    pmm_get_stats(&after);
+    KASSERT(before.free_pages == after.free_pages && before.allocated_pages == after.allocated_pages);
     process_preempt_disable();
     uint64_t a = process_create_user("user-a", user_valid_start, bytes, 0, 17);
     uint64_t b = process_create_user("user-b", user_valid_start, bytes, 0, 29);
@@ -356,6 +386,76 @@ void user_mode_selftest(void) {
     KASSERT(before.free_pages == after.free_pages && before.allocated_pages == after.allocated_pages &&
         vb.mapped_pages == va.mapped_pages && vb.table_pages == va.table_pages);
     log_info("test", "Ring 3: CPL/IOPL, TSS, CR3 privados, dados isolados, PIT, INT80 e limpeza OK.");
+}
+
+#define DECLARE_PROBE(name) extern const unsigned char user_probe_##name##_start[], user_probe_##name##_end[]
+DECLARE_PROBE(read); DECLARE_PROBE(write); DECLARE_PROBE(execute); DECLARE_PROBE(textwrite); DECLARE_PROBE(nx);
+DECLARE_PROBE(cli); DECLARE_PROBE(halt); DECLARE_PROBE(port); DECLARE_PROBE(intgate); DECLARE_PROBE(divide);
+DECLARE_PROBE(opcode); DECLARE_PROBE(fpu); DECLARE_PROBE(syscall); DECLARE_PROBE(cr3); DECLARE_PROBE(msr);
+DECLARE_PROBE(iret); DECLARE_PROBE(badstack);
+DECLARE_PROBE(badreturn); DECLARE_PROBE(badirq);
+#undef DECLARE_PROBE
+static volatile uint64_t kernel_secret = 0x53a9bc71de402816ull;
+void user_mode_fault_selftest(void) {
+    struct pmm_stats before, after; struct vmm_stats vb, va;
+    pmm_get_stats(&before); vmm_get_stats(&vb);
+    uint64_t root, mask; struct vmm_ops ops;
+    KASSERT(vmm_kernel_context(&ops, &root, &mask));
+    uint64_t hhdm = (uintptr_t)ops.table(0, root);
+    struct probe { const char *name; const unsigned char *start, *end; uint64_t argument, vector, error, cr2; };
+#define PROBE(label, image, arg, vec, err, fault) { label, user_probe_##image##_start, user_probe_##image##_end, arg, vec, err, fault }
+    const struct probe probes[] = {
+        PROBE("kernel-read", read, (uintptr_t)&kernel_secret, 14, 5, (uintptr_t)&kernel_secret),
+        PROBE("kernel-write", write, (uintptr_t)&kernel_secret, 14, 7, (uintptr_t)&kernel_secret),
+        PROBE("hhdm-read", read, hhdm, 14, 5, hhdm),
+        PROBE("hhdm-write", write, hhdm, 14, 7, hhdm),
+        PROBE("kernel-exec", execute, (uintptr_t)user_mode_selftest, 14, 21, (uintptr_t)user_mode_selftest),
+        PROBE("code-write", textwrite, 0, 14, 7, USER_CODE_BASE),
+        PROBE("data-nx", nx, 0, 14, 21, USER_DATA_BASE),
+        PROBE("null", read, 0, 14, 4, 0),
+        PROBE("stack-low", read, USER_STACK_BASE - 4096, 14, 4, USER_STACK_BASE - 4096),
+        PROBE("stack-high", read, USER_STACK_TOP, 14, 4, USER_STACK_TOP),
+        PROBE("stack-nx", execute, USER_STACK_BASE, 14, 21, USER_STACK_BASE),
+        PROBE("cli", cli, 0, 13, 0, 0), PROBE("hlt", halt, 0, 13, 0, 0),
+        PROBE("port", port, 0, 13, 0, 0), PROBE("int-gate", intgate, 0, 13, 2, 0),
+        PROBE("divide", divide, 0, 0, 0, 0), PROBE("opcode-df", opcode, 0, 6, 0, 0),
+        PROBE("fpu", fpu, 0, 7, 0, 0), PROBE("syscall", syscall, 0, 6, 0, 0),
+        PROBE("cr3", cr3, 0, 13, 0, 0), PROBE("msr", msr, 0, 13, 0, 0),
+        PROBE("iret-ring0", iret, 0, 13, 8, 0), PROBE("invalid-rsp", badstack, 0, 6, 0, 0),
+        PROBE("invalid-rsp-return", badreturn, 0, 13, 0, 0), PROBE("invalid-rsp-irq", badirq, 0, 13, 0, 0),
+    };
+#undef PROBE
+    for (size_t i = 0; i < sizeof probes / sizeof *probes; ++i) {
+        const struct probe *p = &probes[i];
+        uint64_t pid = process_create_user(p->name, p->start, (uintptr_t)p->end - (uintptr_t)p->start, 0, p->argument);
+        int status; KASSERT(pid && process_wait(pid, &status));
+        KASSERT(status == -(256 + (int)p->vector));
+        KASSERT(last_user_fault.pid == pid && last_user_fault.vector == p->vector && last_user_fault.error == p->error);
+        KASSERT(p->vector != 14 || last_user_fault.cr2 == p->cr2);
+        KASSERT(kernel_secret == 0x53a9bc71de402816ull);
+        pmm_get_stats(&after); vmm_get_stats(&va);
+        KASSERT(before.free_pages == after.free_pages && before.allocated_pages == after.allocated_pages &&
+            vb.mapped_pages == va.mapped_pages && vb.table_pages == va.table_pages);
+        log_info("test", "User fault: %s vetor=%u erro=%p OK; recursos restaurados.", p->name,
+            (unsigned int)p->vector, (void *)(uintptr_t)p->error);
+    }
+    /* Uma pagina privada da vitima nao pode ser lida por outro PID. */
+    process_preempt_disable();
+    uint64_t victim = process_create_user("victim", user_valid_start, (uintptr_t)user_valid_end - (uintptr_t)user_valid_start, 0, 17);
+    KASSERT(victim);
+    struct address_space *space = manager.processes[process_core_find(&manager, victim)].space;
+    KASSERT(address_space_alloc(space, 0xa00000, VMM_WRITE));
+    uint64_t secret = kernel_secret; KASSERT(address_space_copy(space, 0xa00000, &secret, sizeof secret, true));
+    uint64_t attacker = process_create_user("attacker", user_probe_read_start,
+        (uintptr_t)user_probe_read_end - (uintptr_t)user_probe_read_start, 0, 0xa00000);
+    KASSERT(attacker); process_preempt_enable();
+    int status; KASSERT(process_wait(attacker, &status) && status == -270);
+    KASSERT(last_user_fault.pid == attacker && last_user_fault.vector == 14 && last_user_fault.error == 4 && last_user_fault.cr2 == 0xa00000);
+    KASSERT(process_wait(victim, &status) && status == 17);
+    pmm_get_stats(&after); vmm_get_stats(&va);
+    KASSERT(before.free_pages == after.free_pages && before.allocated_pages == after.allocated_pages &&
+        vb.mapped_pages == va.mapped_pages && vb.table_pages == va.table_pages);
+    log_info("test", "User faults: 26 tentativas bloqueadas, vitima preservada, kernel ativo e memoria restaurada OK.");
 }
 
 static volatile unsigned int order[12], order_count;

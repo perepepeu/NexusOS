@@ -51,6 +51,8 @@ user_valid_start:
     cmp rdx, rbx
     jne .bad
     mov rcx, 0x600000
+    cmp qword [rcx], 0 ; Paginas novas nao podem revelar dados de um PID anterior.
+    jne .bad
     mov [rcx], rbx
     mov eax, 2
     int 0x80
@@ -90,4 +92,93 @@ user_valid_start:
     int 0x80
     ud2
 user_valid_end:
+
+; Cada imagem e independente, copiada para USER_CODE_BASE pelo loader de teste.
+%macro PROBE 1
+global user_probe_%1_start, user_probe_%1_end
+user_probe_%1_start:
+%endmacro
+%macro END_PROBE 1
+    mov edi, 99 ; So alcancado se a CPU nao bloquear a operacao invalida.
+    xor eax, eax
+    int 0x80
+    ud2
+user_probe_%1_end:
+%endmacro
+
+PROBE read
+    mov al, [rdi]
+END_PROBE read
+PROBE write
+    mov byte [rdi], 1
+END_PROBE write
+PROBE execute
+    jmp rdi
+END_PROBE execute
+PROBE textwrite
+    mov rax, 0x400000
+    mov byte [rax], 0x90
+END_PROBE textwrite
+PROBE nx
+    mov rax, 0x600000
+    mov byte [rax], 0xc3
+    call rax
+END_PROBE nx
+PROBE cli
+    cli
+END_PROBE cli
+PROBE halt
+    hlt
+END_PROBE halt
+PROBE port
+    mov dx, 0x80
+    out dx, al
+END_PROBE port
+PROBE intgate
+    int 0
+END_PROBE intgate
+PROBE divide
+    xor ecx, ecx
+    xor edx, edx
+    mov eax, 1
+    div ecx
+END_PROBE divide
+PROBE opcode
+    std ; O handler precisa limpar DF antes de entrar em C.
+    ud2
+END_PROBE opcode
+PROBE fpu
+    fninit
+END_PROBE fpu
+PROBE syscall
+    syscall
+END_PROBE syscall
+PROBE cr3
+    mov rax, cr3
+END_PROBE cr3
+PROBE msr
+    mov ecx, 0xc0000080
+    rdmsr
+END_PROBE msr
+PROBE iret
+    push qword 0x10
+    push rsp
+    push qword 0x202
+    push qword 0x08
+    push qword 0x400000
+    iretq
+END_PROBE iret
+PROBE badstack
+    xor esp, esp
+    ud2 ; A excecao deve usar RSP0, nunca a pilha de usuario invalida.
+END_PROBE badstack
+PROBE badreturn
+    mov rsp, 0x0100000000000000
+    mov eax, 2
+    int 0x80
+END_PROBE badreturn
+PROBE badirq
+    mov rsp, 0x0100000000000000
+    jmp $ ; O PIT precisa enviar EOI antes de encerrar este processo.
+END_PROBE badirq
 section .note.GNU-stack noalloc noexec nowrite progbits

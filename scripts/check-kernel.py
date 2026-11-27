@@ -207,7 +207,7 @@ def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=
 
 def boot(mode, scenario, image, firmware, ram_mib=256):
     suffix = mode if scenario == "normal" else f"{scenario}-{mode}"
-    if scenario in ("memory", "pmm", "vmm", "heap", "memtest", "processes", "scheduler", "user"): suffix = f"{scenario}-{ram_mib}-{mode}"
+    if scenario in ("memory", "pmm", "vmm", "heap", "memtest", "processes", "scheduler", "user", "user-faults"): suffix = f"{scenario}-{ram_mib}-{mode}"
     log = Path(f"build/boot-{suffix}.log")
     exceptions = {"divide": (0, "Divide error", "0x0"),
                   "opcode": (6, "Invalid opcode", "0x0"),
@@ -237,7 +237,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
               b"\r\nmemtest-ok\r\n" if scenario == "memtest" else
               b"\r\nprocesses-ok\r\n" if scenario == "processes" else
               b"\r\nscheduler-ok\r\n" if scenario == "scheduler" else
-              b"\r\nuser-ok\r\n" if scenario == "user" else
+              b"\r\nuser-ok\r\n" if scenario in ("user", "user-faults") else
               b"Terminal pronto. Digite help.")
     with tempfile.TemporaryDirectory(prefix="nexus-qmp-") as directory:
         monitor_path = str(Path(directory) / "monitor.sock")
@@ -252,7 +252,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
         with log.open("wb") as output, subprocess.Popen(
                 command, stdout=output, stderr=subprocess.STDOUT) as process:
             try:
-                deadline = time.monotonic() + (50 if scenario == "processes" else 40 if scenario in ("pmm", "scheduler") else 20)
+                deadline = time.monotonic() + (60 if scenario == "user-faults" else 50 if scenario == "processes" else 40 if scenario in ("pmm", "scheduler", "user") else 20)
                 injected = False
                 while marker not in log.read_bytes():
                     if process.poll() is not None or time.monotonic() >= deadline:
@@ -293,7 +293,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                             b"Terminal pronto. Digite help." in log.read_bytes()):
                         type_terminal_test(monitor_path, scheduler=True)
                         injected = True
-                    if (scenario == "user" and not injected and
+                    if (scenario in ("user", "user-faults") and not injected and
                             b"Terminal pronto. Digite help." in log.read_bytes()):
                         type_terminal_test(monitor_path, user=True, process_log=log)
                         injected = True
@@ -488,9 +488,20 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                      b"Alocacoes ativas: 0"] + memory_baseline
         switches = re.search(rb"Preempcoes: (\d+)", text)
         if not switches or int(switches[1]) < 6: raise RuntimeError(f"Preempcao nao confirmada; consulte {log}")
-    if scenario == "user":
-        required += [b"Ring 3: CPL/IOPL, TSS, CR3 privados, dados isolados, PIT, INT80 e limpeza OK.",
-                     b"Segmentos Ring 3 prontos: CS=0x2b SS=0x33", b"Alocacoes ativas: 0"] + memory_baseline
+    if scenario in ("user", "user-faults"):
+        required += [b"Segmentos Ring 3 prontos: CS=0x2b SS=0x33", b"Alocacoes ativas: 0"] + memory_baseline
+        if scenario == "user":
+            required += [b"Ring 3: CPL/IOPL, TSS, CR3 privados, dados isolados, PIT, INT80 e limpeza OK."]
+        else:
+            required += [b"User faults: 26 tentativas bloqueadas, vitima preservada, kernel ativo e memoria restaurada OK."]
+            names = ("kernel-read", "kernel-write", "hhdm-read", "hhdm-write", "kernel-exec", "code-write", "data-nx",
+                     "null", "stack-low", "stack-high", "stack-nx", "cli", "hlt", "port", "int-gate", "divide",
+                     "opcode-df", "fpu", "syscall", "cr3", "msr", "iret-ring0", "invalid-rsp", "invalid-rsp-return", "invalid-rsp-irq")
+            for name in names:
+                if not re.search(rb"User fault: " + name.encode() + rb" vetor=\d+ erro=0x[0-9a-f]+ OK; recursos restaurados\.", text):
+                    raise RuntimeError(f"Probe {name} ausente; consulte {log}")
+            if len(re.findall(rb"\[user\] Processo encerrado:", text)) != 26:
+                raise RuntimeError(f"Contagem de excecoes de usuario invalida; consulte {log}")
         ids = re.findall(rb"Processo Ring3 criado: (\d+)", text)
         if len(ids) != 1: raise RuntimeError(f"spawnuser invalido; consulte {log}")
         required += [b"Processo coletado: " + ids[0] + b" status=42"]
@@ -521,7 +532,7 @@ def main():
     Path("build").mkdir(exist_ok=True)
     firmware = Path("/usr/share/OVMF/OVMF_CODE_4M.fd")
     if not firmware.is_file(): raise SystemExit("OVMF ausente: instale o pacote ovmf.")
-    scenarios = (("user",) if args.user else ("scheduler",) if args.scheduler else ("processes", "process-guard") if args.processes else ("memtest",) if args.memtest else ("access-null", "access-guard-low", "access-guard-high", "access-unmapped", "access-overflow",
+    scenarios = (("user", "user-faults") if args.user else ("scheduler",) if args.scheduler else ("processes", "process-guard") if args.processes else ("memtest",) if args.memtest else ("access-null", "access-guard-low", "access-guard-high", "access-unmapped", "access-overflow",
                   "access-underflow", "access-freed", "access-doublefree", "access-badfree", "access-nx") if args.access else
                  ("heap",) if args.heap else ("vmm", "vmm-unmapped", "vmm-readonly", "vmm-nx") if args.vmm else
                  ("pmm",) if args.pmm else ("memory",) if args.memory else ("terminal", "terminal-limits") if args.terminal else
@@ -541,7 +552,7 @@ def main():
                 raise RuntimeError(result.stdout.decode(errors="replace"))
         for mode in ("bios", "uefi"):
             previous = 0
-            sizes = (128, 512, 5120) if args.memory or args.pmm or scenario in ("vmm", "heap", "memtest", "processes", "scheduler", "user") else (256,)
+            sizes = (128, 512, 5120) if args.memory or args.pmm or scenario in ("vmm", "heap", "memtest", "processes", "scheduler", "user", "user-faults") else (256,)
             for size in (sizes[:1] if args.quick else sizes):
                 detected = boot(mode, scenario, image, firmware, size)
                 if args.memory:
