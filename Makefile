@@ -2,7 +2,7 @@ include toolchain.mk
 
 .DEFAULT_GOAL := iso
 QEMU := qemu-system-x86_64
-QEMUFLAGS := -machine q35 -accel tcg -m 256M -boot d -net none -no-reboot
+QEMUFLAGS := -machine q35 -accel tcg -m 256M -boot d -net none
 OVMF ?= /usr/share/OVMF/OVMF_CODE_4M.fd
 DISPLAY_BACKEND ?= gtk
 KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o build/kernel/interrupts.o build/kernel/interrupt_stubs.o build/kernel/keyboard.o build/kernel/terminal.o build/kernel/power.o build/kernel/acpi_s5.o

@@ -56,6 +56,8 @@ make run-uefi  # UEFI com OVMF
 Use Ctrl+A, depois X, no terminal para sair do QEMU, ou feche sua janela.
 Para executar apenas pela serial, sem WSLg, use `make run DISPLAY_BACKEND=none`
 ou `make run-uefi DISPLAY_BACKEND=none`.
+Esses comandos permitem reiniciar a VM. Ao executar o QEMU manualmente, omita
+`-no-reboot`: essa opcao encerra o processo quando o guest solicita um reset.
 Os comandos usam emulacao TCG, sem depender de permissoes KVM.
 O teste `make check-kernel` inicia as duas variantes sem interface grafica,
 verifica a resposta do protocolo Limine e a mensagem final do kernel na serial,

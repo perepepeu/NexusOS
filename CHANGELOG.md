@@ -1,5 +1,9 @@
 # Historico de versoes
 
+## Em desenvolvimento
+
+- Corrigida a execucao interativa no QEMU para permitir reboot sem fechar a VM.
+
 ## 0.1 - 2026-11-26
 
 - Comandos reboot e shutdown com reset ACPI/PS2 e desligamento ACPI S5.
