@@ -43,12 +43,14 @@ int main(void) {
     setup(mixed, sizeof mixed / sizeof mixed[0]);
     assert(state.stats.total_pages == 28 && state.stats.bitmap_bytes == 4);
     assert(state.stats.metadata_pages == 1 && state.stats.free_pages == 27);
+    assert(!pmm_core_page_allocated(&state, state.stats.metadata_address));
     assert(pmm_core_prepare(&state) == PMM_ALREADY_INITIALIZED);
     assert(pmm_core_activate(&state, storage, state.stats.bitmap_bytes) == PMM_ALREADY_INITIALIZED);
     uint64_t addresses[28], count = 0;
     while (state.stats.free_pages) {
         uint64_t address = pmm_core_alloc(&state, 1, 1);
         assert(address && address % 4096 == 0 && address != state.stats.metadata_address);
+        assert(pmm_core_page_allocated(&state, address));
         assert(address < 5 * 4096 || (address >= 0x10000 && address < 0x20000) ||
             (address >= 0x10000000000ull && address < 0x10000008000ull));
         for (uint64_t j = 0; j < count; ++j) assert(addresses[j] != address);
@@ -63,6 +65,7 @@ int main(void) {
     assert(pmm_core_free(&state, 1, 1) == PMM_BAD_ARGUMENT);
     assert(pmm_core_free(&state, addresses[0], 0) == PMM_BAD_ARGUMENT);
     assert(pmm_core_free(&state, addresses[0], 1) == PMM_OK);
+    assert(!pmm_core_page_allocated(&state, addresses[0]));
     assert(pmm_core_free(&state, addresses[0], 1) == PMM_NOT_ALLOCATED);
     assert(pmm_core_alloc(&state, 1, 1) == addresses[0]); /* Reutiliza apos esgotamento/wrap. */
     for (uint64_t i = 0; i < count; ++i) assert(pmm_core_free(&state, addresses[i], 1) == PMM_OK);

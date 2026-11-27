@@ -10,6 +10,7 @@
 #include <power.h>
 #include <memory.h>
 #include <pmm.h>
+#include <vmm.h>
 
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t requests_start[] = LIMINE_REQUESTS_START_MARKER;
@@ -150,6 +151,16 @@ void kmain(void) {
     log_info("pmm", "Alocador pronto: %llu paginas livres; metadados=%llu paginas.",
         (unsigned long long)pages.free_pages, (unsigned long long)pages.metadata_pages);
     if (boot_option("selftest=pmm")) pmm_selftest(hhdm.response->offset);
+    if (vmm_init(hhdm.response->offset) != VMM_OK)
+        PANIC(ERR_VIRTUAL_MEMORY, "Nao foi possivel iniciar a memoria virtual.");
+    struct vmm_stats virtual_memory;
+    vmm_get_stats(&virtual_memory);
+    log_info("vmm", "VMM pronto: CR3=%p janela=%p. NX e WP habilitados.",
+        (void *)(uintptr_t)virtual_memory.root_address, (void *)(uintptr_t)virtual_memory.window_base);
+    if (boot_option("selftest=vmm")) vmm_selftest(hhdm.response->offset, 0);
+    if (boot_option("selftest=vmm-unmapped")) vmm_selftest(hhdm.response->offset, 1);
+    if (boot_option("selftest=vmm-readonly")) vmm_selftest(hhdm.response->offset, 2);
+    if (boot_option("selftest=vmm-nx")) vmm_selftest(hhdm.response->offset, 3);
 
     if (boot_option("selftest=interrupts")) interrupts_selftest();
     if (boot_option("selftest=doublefault")) interrupts_test_double_fault();

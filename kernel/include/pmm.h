@@ -20,5 +20,6 @@ uint64_t pmm_alloc_pages(uint64_t count, uint64_t alignment_pages);
 enum pmm_result pmm_free_page(uint64_t address);
 enum pmm_result pmm_free_pages(uint64_t address, uint64_t count);
 void pmm_get_stats(struct pmm_stats *out);
+bool pmm_page_allocated(uint64_t address);
 void pmm_selftest(uint64_t hhdm);
 #endif

@@ -2,6 +2,11 @@
 
 ## Em desenvolvimento
 
+- VMM de quatro niveis com PML4 propria, janela privada e mapas do boot preservados.
+- APIs de map/unmap/protect/translate, aliases e integracao com o PMM.
+- NX, CR0.WP, invalidacao de TLB e rollback de tabelas em falta de memoria.
+- Comando vmm e testes de page faults reais por ausencia, escrita e execucao NX.
+
 - Alocador fisico de paginas de 4 KiB com bitmap compacto e metadados protegidos.
 - Alocacao individual, pagina zerada e blocos contiguos com alinhamento.
 - Liberacao validada, contadores atuais e comando pmm no terminal.

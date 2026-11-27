@@ -147,6 +147,7 @@ Uma reentrada no handler usa uma mensagem minima na serial.
 | 5 | Excecao da CPU ou interrupcao inesperada |
 | 6 | Mapa de memoria fisica ausente ou invalido |
 | 7 | Falha ao inicializar o alocador de paginas fisicas |
+| 8 | Falha ao inicializar a memoria virtual |
 
 ```sh
 make check-kernel  # Boot normal, BIOS e UEFI
@@ -281,6 +282,7 @@ o texto digitado, sem interpretacao de aspas, pipes ou redirecionamentos.
 | `memory` | Resume a memoria utilizavel e as categorias do mapa fisico |
 | `memmap` | Lista enderecos fisicos, tamanhos e tipos de todas as regioes |
 | `pmm` | Mostra paginas livres, alocadas e reservadas para o bitmap |
+| `vmm` | Mostra CR3, janela virtual e tabelas de paginas proprias |
 
 O editor aceita 127 caracteres, insercao na posicao do cursor, Left/Right,
 Home/End, Delete, Backspace e Tab (quatro espacos). Up/Down navegam pelo
@@ -432,7 +434,8 @@ As operacoes protegem o bitmap e os contadores desabilitando interrupcoes e
 restaurando o estado anterior, no contexto atual de uma CPU. Nao ha suporte
 a alocacoes concorrentes em SMP ou NMI. Reinicializar um PMM ativo e rejeitado.
 O alocador nao recupera automaticamente memoria do bootloader ou ACPI e nao
-implementa heap/malloc, swap, paginacao sob demanda ou um gerenciador virtual.
+implementa heap/malloc, swap ou paginacao sob demanda. O VMM usa esse alocador
+para obter a propria raiz e as tabelas criadas em sua janela virtual.
 
 `pmm` apresenta paginas totais, livres, alocadas, metadados, endereco e bytes
 do bitmap. A identidade `total = livres + alocadas + metadados` e mantida;
@@ -450,6 +453,83 @@ verifica a pagina zerada, escreve e le paginas alocadas, testa protecoes e
 restaura os contadores depois de liberar tudo. Com 5 GiB, tambem aloca um
 bloco acima de 4 GiB e verifica escrita/leitura nele. Sao usados 128, 512 e
 5120 MiB em BIOS e UEFI. Logs: `build/boot-pmm-{MiB}-{bios|uefi}.log`.
+
+## Memoria virtual do kernel
+
+O VMM usa paging x86_64 de quatro niveis, com paginas de 4 KiB para novos
+mapeamentos. Aloca uma PML4 propria pelo PMM, copia a raiz ativa do Limine e
+carrega seu endereco fisico em CR3. As tabelas filhas herdadas continuam
+compartilhadas: kernel, pilhas, HHDM, framebuffer, ACPI e LAPIC permanecem
+acessiveis. A memoria dessas tabelas do bootloader ainda nao pode ser recuperada.
+
+Uma entrada livre entre os slots PML4 384 e 507 define uma janela privada de
+512 GiB. Seu endereco e descoberto em runtime, sem sobrescrever os slots do
+kernel, do HHDM ou do LAPIC. Somente essa janela pode ser alterada pela API.
+Mapeamentos herdados podem ser consultados, mas map/protect/unmap fora da
+janela retornam `VMM_PROTECTED`.
+
+```c
+#include <vmm.h>
+#include <pmm.h>
+
+struct vmm_stats stats;
+vmm_get_stats(&stats);
+uint64_t va = stats.window_base + 0x1000;
+uint64_t physical;
+if (vmm_alloc_page(va, VMM_WRITE, &physical) == VMM_OK) {
+    // va e um endereco virtual gravavel de uma pagina inicialmente zerada.
+    // Desconecte todos os aliases antes de liberar a pagina fisica.
+    if (vmm_unmap_page(va, 0) == VMM_OK) pmm_free_page(physical);
+}
+```
+
+`vmm_map_page(va, physical, flags)` associa uma pagina fisica ja alocada pelo
+PMM, permitindo aliases. `vmm_alloc_page` e uma conveniencia que aloca e zera
+uma pagina, cria o mapeamento e devolve seu endereco fisico ao chamador.
+Se a operacao falhar, essa pagina e devolvida ao PMM. O endereco virtual deve
+ser canonico, alinhado a 4096 e pertencer a janela; a pagina fisica deve estar
+alinhada, dentro da largura fisica da CPU e alocada no PMM (fora do bitmap).
+
+`vmm_unmap_page` remove a traducao e opcionalmente devolve o endereco fisico.
+**Nao libera a pagina de dados**: o chamador continua dono dela e deve remover
+todos os aliases antes de usar `pmm_free_page`. Nao ha contagem de referencias
+nem isolamento entre processos nesta etapa. Tabelas intermediarias vazias que
+foram criadas pelo VMM sao liberadas automaticamente; a PML4 propria permanece.
+
+`vmm_protect_page` troca as permissoes sem remapear o frame. Todos os novos
+mapeamentos sao supervisor: `0` permite leitura, `VMM_WRITE` permite escrita,
+e `VMM_EXEC` permite leitura/execucao. Dados recebem NX; W+X e rejeitado para
+o mesmo mapeamento. CR0.WP e IA32_EFER.NXE sao habilitados. Essa politica e
+local aos novos mapeamentos: os aliases herdados do HHDM mantem suas permissoes.
+
+`vmm_translate` informa endereco fisico, tamanho de pagina e permissoes efetivas,
+considerando todos os niveis. Le mapeamentos herdados de 2 MiB e 1 GiB sem
+dividi-los. Novos mapeamentos duplicados sao rejeitados. Uma falha de alocacao
+desfaz as tabelas parciais e preserva os mapeamentos anteriores.
+
+Alteracoes invalidam a TLB com `invlpg`; a remocao de tabelas intermediarias
+tambem recarrega CR3 antes de devolver as paginas ao PMM. As operacoes sao
+serializadas com interrupcoes desabilitadas em uma CPU. Nao ha PCID, LA57,
+SMP/TLB shootdown, ring 3, espacos por processo, heap ou swap. O caminho exige
+suporte a NX e preserva as tabelas existentes sem redesenhar o HHDM.
+
+```sh
+make run
+# No terminal: vmm
+make check-vmm
+```
+
+O teste do nucleo usa ASan/UBSan e um provedor de paginas limitado para verificar
+rollback por OOM em varios niveis, aliases, protecao, heranca, huge pages e
+ausencia de vazamentos. No QEMU, sao testados CR3, acesso a mapeamentos distintos,
+aliases, traducao, execucao RX, remocao e limpeza em BIOS/UEFI, com 128, 512 e
+5120 MiB. O caso de 5 GiB tambem mapeia um frame fisico acima de 4 GiB.
+Tres cenarios adicionais provocam page faults reais: leitura apos unmap,
+escrita em pagina somente leitura e execucao em pagina NX. Os testes conferem
+vetor 14, erro e CR2. O comando `vmm` mostra apenas as tabelas proprias; o PMM
+registra essas paginas como alocacoes normais do seu cliente VMM.
+
+Referencia: [Intel SDM, System Programming Guide](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-system-programming-manual-325384.pdf).
 
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1

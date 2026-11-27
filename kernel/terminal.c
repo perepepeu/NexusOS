@@ -10,6 +10,7 @@
 #include <power.h>
 #include <memory.h>
 #include <pmm.h>
+#include <vmm.h>
 
 enum { LINE_SIZE = 128, HISTORY_SIZE = 8 };
 static const char prompt[] = "nexus> ";
@@ -71,6 +72,17 @@ static void page_summary(void) {
     put("\nBitmap fisico: "); hex(s.metadata_address);
     put("\nBytes do bitmap: "); number(s.bitmap_bytes, true);
     put("\nFaixas utilizaveis: "); number(s.range_count, true); put("\n");
+}
+
+static void virtual_summary(void) {
+    struct vmm_stats s;
+    vmm_get_stats(&s);
+    if (!s.ready) { put("Memoria virtual indisponivel.\n"); return; }
+    put("Memoria virtual do kernel - 4 niveis\nCR3 fisico: "); hex(s.root_address);
+    put("\nJanela propria: "); hex(s.window_base);
+    put("\nTamanho da janela: "); number(s.window_size, true); put(" bytes\nPaginas mapeadas: ");
+    number(s.mapped_pages, true); put("\nTabelas proprias: "); number(s.table_pages, true);
+    put(" paginas\nPaginas: 4 KiB, supervisor, NX e WP ativos.\n");
 }
 
 static void memory_map(void) {
@@ -139,18 +151,19 @@ static void command(char *line, const char *bootloader, const char *boot_version
     bool known = equal(name, "help") || equal(name, "clear") || equal(name, "version")
         || equal(name, "uptime") || equal(name, "sysinfo") || equal(name, "history")
         || equal(name, "reboot") || equal(name, "shutdown")
-        || equal(name, "memory") || equal(name, "memmap") || equal(name, "pmm");
+        || equal(name, "memory") || equal(name, "memmap") || equal(name, "pmm") || equal(name, "vmm");
     if (!known) { put("Comando desconhecido: "); put(name); put(". Digite help.\n"); return; }
     if (*args) { put("Uso: "); put(name); put(" (sem argumentos).\n"); return; }
     if (equal(name, "help")) {
         put("Comandos: help clear echo version uptime sysinfo history\n");
         put("Energia: reboot shutdown\n");
-        put("Memoria: memory memmap pmm\n");
+        put("Memoria: memory memmap pmm vmm\n");
         put("Edicao: setas, Home/End, Delete, Backspace, historico Up/Down.\n");
         put("Ctrl+C cancela, Ctrl+U apaga a linha, Ctrl+L limpa a tela.\n");
     } else if (equal(name, "memory")) memory_summary();
     else if (equal(name, "memmap")) memory_map();
     else if (equal(name, "pmm")) page_summary();
+    else if (equal(name, "vmm")) virtual_summary();
     else if (equal(name, "reboot")) {
         if (!power_reboot()) put("Nao foi possivel reiniciar; terminal continua ativo.\n");
     } else if (equal(name, "shutdown")) {

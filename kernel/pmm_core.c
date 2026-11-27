@@ -151,3 +151,11 @@ enum pmm_result pmm_core_free(struct pmm_state *s, uint64_t address, uint64_t co
     s->stats.free_pages += count; s->stats.allocated_pages -= count;
     return PMM_OK;
 }
+
+bool pmm_core_page_allocated(const struct pmm_state *s, uint64_t address) {
+    if (!s || !s->stats.ready || !address || address % MEMORY_PAGE_SIZE) return false;
+    const struct pmm_range *range = find_address(s, address / MEMORY_PAGE_SIZE);
+    if (!range || (address >= s->stats.metadata_address &&
+            address < s->stats.metadata_address + s->stats.metadata_pages * MEMORY_PAGE_SIZE)) return false;
+    return bit(s, range->first_bit + address / MEMORY_PAGE_SIZE - range->first_page);
+}

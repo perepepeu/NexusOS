@@ -5,7 +5,7 @@ QEMU := qemu-system-x86_64
 QEMUFLAGS := -machine q35 -accel tcg -m 256M -boot d -net none
 OVMF ?= /usr/share/OVMF/OVMF_CODE_4M.fd
 DISPLAY_BACKEND ?= gtk
-KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o build/kernel/interrupts.o build/kernel/interrupt_stubs.o build/kernel/keyboard.o build/kernel/terminal.o build/kernel/power.o build/kernel/acpi_s5.o build/kernel/memory.o build/kernel/pmm_core.o build/kernel/pmm.o
+KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o build/kernel/interrupts.o build/kernel/interrupt_stubs.o build/kernel/keyboard.o build/kernel/terminal.o build/kernel/power.o build/kernel/acpi_s5.o build/kernel/memory.o build/kernel/pmm_core.o build/kernel/pmm.o build/kernel/vmm_core.o build/kernel/vmm.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -95,6 +95,15 @@ check-pmm-unit:
 
 check-pmm: iso check-pmm-unit
 	python3 scripts/check-kernel.py --pmm
+
+.PHONY: check-vmm check-vmm-unit
+check-vmm-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/vmm_test.c kernel/vmm_core.c -o build/tests/vmm
+	build/tests/vmm
+
+check-vmm: iso check-vmm-unit
+	python3 scripts/check-kernel.py --vmm
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader

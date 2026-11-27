@@ -56,6 +56,12 @@ void pmm_get_stats(struct pmm_stats *out) {
     *out = allocator.stats;
     irq_restore(flags);
 }
+bool pmm_page_allocated(uint64_t address) {
+    uint64_t flags = irq_save();
+    bool allocated = pmm_core_page_allocated(&allocator, address);
+    irq_restore(flags);
+    return allocated;
+}
 
 void pmm_selftest(uint64_t hhdm) {
     struct pmm_stats before, after;

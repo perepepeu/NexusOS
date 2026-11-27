@@ -15,4 +15,5 @@ enum pmm_result pmm_core_prepare(struct pmm_state *state);
 enum pmm_result pmm_core_activate(struct pmm_state *state, void *bitmap, uint64_t capacity);
 uint64_t pmm_core_alloc(struct pmm_state *state, uint64_t count, uint64_t alignment);
 enum pmm_result pmm_core_free(struct pmm_state *state, uint64_t address, uint64_t count);
+bool pmm_core_page_allocated(const struct pmm_state *state, uint64_t address);
 #endif
