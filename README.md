@@ -1,7 +1,7 @@
 # NexusOS
 
-Versao atual: **0.1**. A versao fica registrada em `VERSION` e na tag Git
-`v0.1`. Veja as entregas em [CHANGELOG.md](CHANGELOG.md).
+Versao atual: **0.2**. A versao fica registrada em `VERSION` e na tag Git
+`v0.2`. Veja as entregas em [CHANGELOG.md](CHANGELOG.md).
 
 ## Compilador C e Assembly
 

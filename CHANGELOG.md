@@ -2,6 +2,8 @@
 
 ## Em desenvolvimento
 
+## 0.2 - 2026-11-27
+
 - Total agregado de RAM identificada, com uniao de intervalos e exclusao de MMIO.
 - Comandos meminfo (alias de memory) e memtest (teste limitado de PMM/VMM/heap).
 - Testes de repeticao do memtest, limpeza e limite virtual do heap.
