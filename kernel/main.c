@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <limine.h>
+#include <console.h>
 
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t requests_start[] = LIMINE_REQUESTS_START_MARKER;
@@ -10,6 +11,12 @@ static volatile uint64_t base_revision[] = LIMINE_BASE_REVISION(6);
 __attribute__((used, section(".limine_requests")))
 static volatile struct limine_bootloader_info_request bootloader_info = {
     .id = LIMINE_BOOTLOADER_INFO_REQUEST_ID,
+    .revision = 0,
+};
+
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_framebuffer_request framebuffer = {
+    .id = LIMINE_FRAMEBUFFER_REQUEST_ID,
     .revision = 0,
 };
 
@@ -55,6 +62,11 @@ static void serial_write(const char *message) {
     }
 }
 
+static void print(const char *message) {
+    serial_write(message);
+    console_write(message);
+}
+
 __attribute__((noreturn))
 static void halt(void) {
     for (;;) {
@@ -65,23 +77,28 @@ static void halt(void) {
 __attribute__((noreturn))
 void kmain(void) {
     serial_init();
-    serial_write("\nNexusOS: iniciando kernel x86_64...\n");
 
     if (!LIMINE_BASE_REVISION_SUPPORTED(base_revision)) {
         serial_write("PANIC: revisao do protocolo Limine nao suportada.\n");
         halt();
     }
+    if (console_init(framebuffer.response)) {
+        print("NexusOS\n\nTela: framebuffer pronto.\n");
+    } else {
+        serial_write("AVISO: framebuffer RGB de 32 bits indisponivel; usando serial.\n");
+    }
+    print("NexusOS: iniciando kernel x86_64...\n");
     struct limine_bootloader_info_response *info = bootloader_info.response;
     if (info == 0 || info->name == 0 || info->version == 0) {
-        serial_write("PANIC: resposta de identificacao do bootloader ausente.\n");
+        print("PANIC: resposta de identificacao do bootloader ausente.\n");
         halt();
     }
 
-    serial_write("Bootloader: ");
-    serial_write(info->name);
-    serial_write(" ");
-    serial_write(info->version);
-    serial_write("\nProtocolo Limine: OK\n");
-    serial_write("NexusOS: kernel inicial pronto. CPU em espera.\n");
+    print("Bootloader: ");
+    print(info->name);
+    print(" ");
+    print(info->version);
+    print("\nProtocolo Limine: OK\n");
+    print("NexusOS: kernel inicial pronto. CPU em espera.\n");
     halt();
 }
