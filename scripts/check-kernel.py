@@ -80,7 +80,7 @@ def type_keyboard_test(monitor_path):
     chord("esc")
 
 
-def type_terminal_test(monitor_path, limits=False):
+def type_terminal_test(monitor_path, limits=False, memory=False):
     def chord(*keys):
         items = [(key, True) for key in keys] + [(key, False) for key in reversed(keys)]
         qmp_execute(monitor_path, "input-send-event", {"events": [
@@ -97,6 +97,12 @@ def type_terminal_test(monitor_path, limits=False):
     def command(value):
         text(value); chord("ret")
 
+    if memory:
+        command("memory")
+        command("memmap")
+        command("sysinfo")
+        command("echo memory-ok")
+        return
     if limits:
         chord("ret")
         command("  echo   espacos ")
@@ -124,8 +130,9 @@ def type_terminal_test(monitor_path, limits=False):
     text("echo mantido"); chord("ctrl", "l"); chord("ret")
     command("echo terminal-ok")
 
-def boot(mode, scenario, image, firmware):
+def boot(mode, scenario, image, firmware, ram_mib=256):
     suffix = mode if scenario == "normal" else f"{scenario}-{mode}"
+    if scenario == "memory": suffix = f"memory-{ram_mib}-{mode}"
     log = Path(f"build/boot-{suffix}.log")
     exceptions = {"divide": (0, "Divide error", "0x0"),
                   "opcode": (6, "Invalid opcode", "0x0"),
@@ -138,12 +145,13 @@ def boot(mode, scenario, image, firmware):
               b"[keyboard] Entrada: A" if scenario == "keyboard-echo" else
               b"\r\nterminal-ok\r\n" if scenario == "terminal" else
               b"\r\nlimits-ok\r\n" if scenario == "terminal-limits" else
+              b"\r\nmemory-ok\r\n" if scenario == "memory" else
               b"Terminal pronto. Digite help.")
     with tempfile.TemporaryDirectory(prefix="nexus-qmp-") as directory:
         monitor_path = str(Path(directory) / "monitor.sock")
         command = [
             "qemu-system-x86_64", "-machine", "q35", "-accel", "tcg",
-            "-m", "256M", "-cdrom", str(image), "-boot", "d", "-display", "none",
+            "-m", f"{ram_mib}M", "-cdrom", str(image), "-boot", "d", "-display", "none",
             "-serial", "stdio", "-monitor", "none", "-no-reboot", "-net", "none",
             "-qmp", f"unix:{monitor_path},server=on,wait=off",
         ]
@@ -165,6 +173,10 @@ def boot(mode, scenario, image, firmware):
                             b"Terminal pronto. Digite help." in log.read_bytes()):
                         type_terminal_test(monitor_path, scenario == "terminal-limits")
                         injected = True
+                    if (scenario == "memory" and not injected and
+                            b"Terminal pronto. Digite help." in log.read_bytes()):
+                        type_terminal_test(monitor_path, memory=True)
+                        injected = True
                     time.sleep(0.1)
                 # O guest deve permanecer ativo, inclusive apos um panic.
                 try:
@@ -182,6 +194,7 @@ def boot(mode, scenario, image, firmware):
     required = [b"Bootloader: Limine", b"Protocolo Limine: OK", b"Tela: framebuffer pronto.",
                 b"GDT e TSS carregadas.", b"IDT carregada: 256 vetores.",
                 b"Interrupcoes habilitadas.", b"Timer IRQ0 confirmado:"]
+    required += [b"[INFO] [memory] Mapa fisico:"]
     records = re.findall(rb"\[(\d+)\] \[(?:DEBUG|INFO|WARN|ERROR|FATAL)\]", text)
     if list(map(int, records)) != list(range(1, len(records) + 1)):
         raise RuntimeError(f"Sequencia de logs incorreta; consulte {log}")
@@ -207,6 +220,7 @@ def boot(mode, scenario, image, firmware):
     if scenario == "logs":
         required += [b"[DEBUG] [test] DEBUG habilitado",
                      b"Formato: ok 42 2a 0x1234 % (null)",
+                     b"Inteiro 64 bits: 4294967303",
                      b"[WARN] [test] Aviso simulado",
                      b"[ERROR] [test] Erro recuperavel simulado"]
         if b"DEBUG oculto" in text:
@@ -242,9 +256,26 @@ def boot(mode, scenario, image, firmware):
                      b"\r\nespacos \r\n"]
         if b"\r\n" + b"x" * 122 + b"z" in text:
             raise RuntimeError(f"Limite de entrada ultrapassado; consulte {log}")
+    if scenario == "memory":
+        rows = re.findall(rb"Regiao (\d+): base=0x([0-9a-f]+) tamanho=(\d+) tipo=(\d+) ([A-Z_]+)", text)
+        if not rows or [int(row[0]) for row in rows] != list(range(len(rows))):
+            raise RuntimeError(f"Mapa de memoria incompleto; consulte {log}")
+        usable = [(int(base, 16), int(size)) for _, base, size, kind, _ in rows if int(kind) == 0]
+        expected_bytes = sum(size for _, size in usable)
+        expected_pages = sum(max(0, (base + size) // 4096 - max(1, (base + 4095) // 4096))
+                             for base, size in usable)
+        summary = re.search(rb"Utilizavel agora: (\d+) bytes", text)
+        pages = re.search(rb"Paginas utilizaveis de 4 KiB: (\d+)", text)
+        if (not summary or not pages or int(summary[1]) != expected_bytes or int(pages[1]) != expected_pages
+                or not ram_mib * 1024 * 1024 // 2 < expected_bytes < ram_mib * 1024 * 1024):
+            raise RuntimeError(f"Contagem de RAM incorreta para {ram_mib} MiB; consulte {log}")
+        if ram_mib > 4096 and (expected_bytes <= 2**32 or max(base + size for base, size in usable) <= 2**32):
+            raise RuntimeError(f"Memoria acima de 4 GiB truncada; consulte {log}")
+        required += [b"Sem alocador: memoria reclamavel ainda nao foi liberada.", b"Memoria utilizavel:"]
     if any(message not in text for message in required):
         raise RuntimeError(f"Diagnostico incompleto; consulte {log}")
     print(f"OK: {scenario}/{mode}, serial e framebuffer; log: {log}", flush=True)
+    if scenario == "memory": return expected_bytes
 
 
 def main():
@@ -254,11 +285,12 @@ def main():
     group.add_argument("--interrupts", action="store_true", help="Testa tabelas, IRQs e excecoes.")
     group.add_argument("--keyboard", action="store_true", help="Injeta teclas PS/2 pelo QMP.")
     group.add_argument("--terminal", action="store_true", help="Testa comandos e edicao do terminal.")
+    group.add_argument("--memory", action="store_true", help="Testa RAM em 128, 512 e 5120 MiB.")
     args = parser.parse_args()
     Path("build").mkdir(exist_ok=True)
     firmware = Path("/usr/share/OVMF/OVMF_CODE_4M.fd")
     if not firmware.is_file(): raise SystemExit("OVMF ausente: instale o pacote ovmf.")
-    scenarios = (("terminal", "terminal-limits") if args.terminal else
+    scenarios = (("memory",) if args.memory else ("terminal", "terminal-limits") if args.terminal else
                  ("keyboard", "keyboard-echo") if args.keyboard else ("logs", "panic", "assert") if args.errors else
                  ("interrupts", "divide", "opcode", "pagefault", "protection", "doublefault")
                  if args.interrupts else ("normal",))
@@ -274,7 +306,12 @@ def main():
             if result.returncode:
                 raise RuntimeError(result.stdout.decode(errors="replace"))
         for mode in ("bios", "uefi"):
-            boot(mode, scenario, image, firmware)
+            previous = 0
+            for size in ((128, 512, 5120) if args.memory else (256,)):
+                detected = boot(mode, scenario, image, firmware, size)
+                if args.memory:
+                    if detected <= previous: raise RuntimeError("RAM detectada nao cresceu com a configuracao")
+                    previous = detected
 
 
 if __name__ == "__main__":

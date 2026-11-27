@@ -58,6 +58,12 @@ void log_write(enum log_level level, const char *module, const char *format, ...
             }
             case 'u': number(va_arg(arguments, unsigned int), 10); break;
             case 'x': number(va_arg(arguments, unsigned int), 16); break;
+            case 'l':
+                if (format[1] == 'l' && format[2] == 'u') {
+                    number(va_arg(arguments, unsigned long long), 10);
+                    format += 2;
+                } else write("%l");
+                break;
             case 'p':
                 write("0x"); number((uintptr_t)va_arg(arguments, void *), 16); break;
             case '%': character('%'); break;

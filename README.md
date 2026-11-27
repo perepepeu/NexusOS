@@ -125,7 +125,8 @@ log_error("driver", "Operacao falhou: %x", 0x10u);
 KASSERT(ponteiro != 0);
 ```
 
-O formatador sem libc suporta `%s`, `%u` e `%x` para `unsigned int`, `%p` para
+O formatador sem libc suporta `%s`, `%u` e `%x` para `unsigned int`, `%llu` para
+`unsigned long long` (64 bits) e `%p` para
 `void *` e `%%`. Strings nulas aparecem como `(null)`. `log_set_level` altera o
 filtro; `cmdline: log=debug` na entrada Limine habilita diagnostico detalhado.
 Avisos e erros recuperaveis registram a falha e retornam ao chamador.
@@ -144,6 +145,7 @@ Uma reentrada no handler usa uma mensagem minima na serial.
 | 3 | Falha fatal injetada pelo autoteste |
 | 4 | Assert do kernel falhou |
 | 5 | Excecao da CPU ou interrupcao inesperada |
+| 6 | Mapa de memoria fisica ausente ou invalido |
 
 ```sh
 make check-kernel  # Boot normal, BIOS e UEFI
@@ -275,6 +277,8 @@ o texto digitado, sem interpretacao de aspas, pipes ou redirecionamentos.
 | `history` | Lista os ultimos oito comandos, incluindo `history` |
 | `reboot` | Reinicia o sistema e volta ao boot |
 | `shutdown` | Desliga a maquina via ACPI S5 |
+| `memory` | Resume a memoria utilizavel e as categorias do mapa fisico |
+| `memmap` | Lista enderecos fisicos, tamanhos e tipos de todas as regioes |
 
 O editor aceita 127 caracteres, insercao na posicao do cursor, Left/Right,
 Home/End, Delete, Backspace e Tab (quatro espacos). Up/Down navegam pelo
@@ -339,6 +343,50 @@ truncados, textos falsos em buffers/metodos e 10000 entradas aleatorias.
 O parser ignora corpos que nao interpreta e rejeita tamanhos ou tipos invalidos.
 
 Referencia: [ACPI Hardware Specification](https://uefi.org/specs/ACPI/6.5/04_ACPI_Hardware_Specification.html).
+
+## Deteccao de memoria fisica
+
+O kernel usa o mapa fornecido pelo Limine, sem escrever em enderecos de RAM
+para tentar descobri-la. Copia ate 1024 descritores para uma area propria e
+valida ponteiros, tamanhos, ordem, overflow e sobreposicoes com RAM utilizavel
+ou reclamavel do bootloader. Um mapa ausente ou invalido gera panic de codigo 6.
+
+`memory` exibe os bytes marcados `USABLE`, paginas completas de 4 KiB,
+maior bloco contiguo paginado e categorias separadas de bootloader, ACPI,
+kernel/modulos, NVS, reservas/MMIO, framebuffer, memoria defeituosa e tipos
+desconhecidos. `sysinfo` tambem informa a quantidade utilizavel em MiB.
+`memmap` mostra os descritores originais copiados, com enderecos e contagens
+de 64 bits. A deteccao e registrada no log de boot.
+
+Somente `USABLE` e contado como disponivel agora. Regioes do bootloader e
+ACPI permanecem ocupadas: suas estruturas ainda sao usadas pelo kernel.
+Tipos desconhecidos e memoria defeituosa nunca entram na contagem utilizavel.
+A contagem de paginas arredonda o inicio para cima e o fim para baixo e exclui
+a pagina fisica zero. Regioes adjacentes da mesma categoria sao unidas para
+essa contagem e para encontrar o maior bloco.
+
+O protocolo permite sobreposicao entre descritores nao utilizaveis. A soma
+de cada categoria usa a uniao dos intervalos, evitando duplicatas dentro dela.
+Categorias diferentes ainda podem se sobrepor; seus valores nao devem ser
+somados para inferir a RAM instalada. Reservas e MMIO podem estar fora da RAM,
+e nem o ultimo endereco do mapa nem a soma de todos os descritores representam
+capacidade de RAM. Os valores sao um retrato do boot, sem alocador de paginas.
+
+```sh
+make run
+# No terminal NexusOS: memory, memmap ou sysinfo
+make check-memory
+```
+
+O teste de kernel usa 128, 512 e 5120 MiB no QEMU, em BIOS e UEFI. Recalcula
+bytes e paginas a partir da saida de `memmap`, compara com o resumo e verifica
+crescimento da memoria detectada e suporte a regioes acima de 4 GiB.
+`make check-memory-unit` usa ASan/UBSan para mapas mistos, copia dos dados,
+alinhamento, pagina zero, tipos desconhecidos, sobreposicoes legais/ilegais,
+entradas nulas/vazias, ordem e overflow. Logs ficam em
+`build/boot-memory-{MiB}-{bios|uefi}.log`, com capturas de mesmos sufixos.
+
+Referencia: [Limine Memory Map Feature](https://github.com/Limine-Bootloader/limine-protocol/blob/877c2d4c50e170575f8b8e7fbf7b8fa89b1dc157/PROTOCOL.md#memory-map-feature).
 
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1

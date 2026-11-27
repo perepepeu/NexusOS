@@ -8,6 +8,7 @@
 #include <terminal.h>
 #include <version.h>
 #include <power.h>
+#include <memory.h>
 
 enum { LINE_SIZE = 128, HISTORY_SIZE = 8 };
 static const char prompt[] = "nexus> ";
@@ -21,6 +22,49 @@ static void number(uint64_t value, bool both) {
     unsigned int count = 0;
     do { digits[count++] = '0' + value % 10; value /= 10; } while (value);
     while (count) { text[0] = digits[--count]; if (both) put(text); else serial_write(text); }
+}
+
+static void hex(uint64_t value) {
+    const char digits[] = "0123456789abcdef";
+    char buffer[16], text[2] = {0, 0};
+    unsigned int used = 0;
+    do { buffer[used++] = digits[value & 15]; value >>= 4; } while (value);
+    put("0x");
+    while (used) { text[0] = buffer[--used]; put(text); }
+}
+
+static void memory_bytes(const char *label, uint64_t bytes) {
+    put(label); number(bytes, true); put(" bytes ("); number(bytes / (1024 * 1024), true); put(" MiB)\n");
+}
+
+static void memory_summary(void) {
+    const struct memory_stats *stats = memory_get_stats();
+    if (!stats->valid) { put("Mapa de memoria indisponivel.\n"); return; }
+    put("Memoria fisica - mapa Limine\nRegioes: "); number(stats->region_count, true); put("\n");
+    memory_bytes("Utilizavel agora: ", stats->bytes[MEMORY_USABLE]);
+    put("Paginas utilizaveis de 4 KiB: "); number(stats->usable_pages, true); put("\n");
+    memory_bytes("Bootloader (reclamavel depois): ", stats->bytes[MEMORY_BOOTLOADER]);
+    memory_bytes("ACPI (reclamavel depois): ", stats->bytes[MEMORY_ACPI]);
+    memory_bytes("Kernel e modulos: ", stats->bytes[MEMORY_KERNEL]);
+    memory_bytes("ACPI NVS: ", stats->bytes[MEMORY_NVS]);
+    memory_bytes("Reservada/MMIO: ", stats->bytes[MEMORY_RESERVED]);
+    memory_bytes("Framebuffer: ", stats->bytes[MEMORY_FRAMEBUFFER]);
+    memory_bytes("Memoria defeituosa: ", stats->bytes[MEMORY_BAD]);
+    memory_bytes("Tipo desconhecido (reservado): ", stats->bytes[MEMORY_UNKNOWN]);
+    put("Maior bloco paginado: "); hex(stats->largest_base); put(" tamanho=");
+    number(stats->largest_bytes, true); put(" bytes\n");
+    put("Sem alocador: memoria reclamavel ainda nao foi liberada.\n");
+}
+
+static void memory_map(void) {
+    const struct memory_stats *stats = memory_get_stats();
+    if (!stats->valid) { put("Mapa de memoria indisponivel.\n"); return; }
+    for (unsigned int i = 0; i < stats->region_count; ++i) {
+        const struct limine_memmap_entry *entry = memory_get_region(i);
+        put("Regiao "); number(i, true); put(": base="); hex(entry->base);
+        put(" tamanho="); number(entry->length, true); put(" tipo="); number(entry->type, true);
+        put(" "); put(memory_type_name(entry->type)); put("\n");
+    }
 }
 
 static void copy(char *destination, const char *source) {
@@ -77,15 +121,19 @@ static void command(char *line, const char *bootloader, const char *boot_version
     if (equal(name, "echo")) { put(args); put("\n"); return; }
     bool known = equal(name, "help") || equal(name, "clear") || equal(name, "version")
         || equal(name, "uptime") || equal(name, "sysinfo") || equal(name, "history")
-        || equal(name, "reboot") || equal(name, "shutdown");
+        || equal(name, "reboot") || equal(name, "shutdown")
+        || equal(name, "memory") || equal(name, "memmap");
     if (!known) { put("Comando desconhecido: "); put(name); put(". Digite help.\n"); return; }
     if (*args) { put("Uso: "); put(name); put(" (sem argumentos).\n"); return; }
     if (equal(name, "help")) {
         put("Comandos: help clear echo version uptime sysinfo history\n");
         put("Energia: reboot shutdown\n");
+        put("Memoria: memory memmap\n");
         put("Edicao: setas, Home/End, Delete, Backspace, historico Up/Down.\n");
         put("Ctrl+C cancela, Ctrl+U apaga a linha, Ctrl+L limpa a tela.\n");
-    } else if (equal(name, "reboot")) {
+    } else if (equal(name, "memory")) memory_summary();
+    else if (equal(name, "memmap")) memory_map();
+    else if (equal(name, "reboot")) {
         if (!power_reboot()) put("Nao foi possivel reiniciar; terminal continua ativo.\n");
     } else if (equal(name, "shutdown")) {
         if (!power_shutdown()) put("Nao foi possivel desligar; terminal continua ativo.\n");
@@ -101,6 +149,8 @@ static void command(char *line, const char *bootloader, const char *boot_version
         put(bootloader); put(" "); put(boot_version);
         put("\nTimer: PIT 100 Hz\nTeclado: PS/2 US, IRQ1\nDescartes do teclado: ");
         number(keyboard_dropped(), true); put("\n");
+        put("Memoria utilizavel: "); number(memory_get_stats()->bytes[MEMORY_USABLE] / (1024 * 1024), true);
+        put(" MiB\n");
     } else if (equal(name, "history")) {
         for (unsigned int i = 0; i < history_count; ++i) {
             number(i + 1, true); put(" "); put(history[history_slot(i)]); put("\n");

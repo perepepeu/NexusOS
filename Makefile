@@ -5,7 +5,7 @@ QEMU := qemu-system-x86_64
 QEMUFLAGS := -machine q35 -accel tcg -m 256M -boot d -net none
 OVMF ?= /usr/share/OVMF/OVMF_CODE_4M.fd
 DISPLAY_BACKEND ?= gtk
-KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o build/kernel/interrupts.o build/kernel/interrupt_stubs.o build/kernel/keyboard.o build/kernel/terminal.o build/kernel/power.o build/kernel/acpi_s5.o
+KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o build/kernel/interrupts.o build/kernel/interrupt_stubs.o build/kernel/keyboard.o build/kernel/terminal.o build/kernel/power.o build/kernel/acpi_s5.o build/kernel/memory.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -77,6 +77,15 @@ check-acpi:
 
 check-power: iso check-acpi
 	python3 scripts/check-power.py
+
+.PHONY: check-memory check-memory-unit
+check-memory-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/memory_test.c kernel/memory.c -o build/tests/memory
+	build/tests/memory
+
+check-memory: iso check-memory-unit
+	python3 scripts/check-kernel.py --memory
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader

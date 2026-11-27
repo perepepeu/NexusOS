@@ -8,6 +8,7 @@ enum kernel_error {
     ERR_SELFTEST = 3,
     ERR_ASSERTION = 4,
     ERR_CPU_EXCEPTION = 5,
+    ERR_MEMORY_MAP = 6,
 };
 
 struct panic_context {

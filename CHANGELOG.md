@@ -2,6 +2,11 @@
 
 ## Em desenvolvimento
 
+- Deteccao e copia do mapa fisico Limine, com validacao e contagem em 64 bits.
+- Comandos memory/memmap e resumo da RAM utilizavel em sysinfo e no boot.
+- Contagem de paginas completas, maior bloco utilizavel e categorias reservadas.
+- Testes de mapas invalidos e de RAM de 128 MiB a 5 GiB em BIOS/UEFI.
+
 - Corrigida a execucao interativa no QEMU para permitir reboot sem fechar a VM.
 
 ## 0.1 - 2026-11-26

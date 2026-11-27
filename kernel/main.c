@@ -8,6 +8,7 @@
 #include <serial.h>
 #include <terminal.h>
 #include <power.h>
+#include <memory.h>
 
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t requests_start[] = LIMINE_REQUESTS_START_MARKER;
@@ -136,6 +137,11 @@ void kmain(void) {
         executable_address.response->virtual_base);
     timer_wait(3);
     log_info("irq", "Timer IRQ0 confirmado: ticks=%u", (unsigned int)timer_ticks());
+    enum memory_error memory_error = memory_detect(memory_map.response);
+    if (memory_error != MEMORY_OK) PANIC(ERR_MEMORY_MAP, memory_error_name(memory_error));
+    const struct memory_stats *ram = memory_get_stats();
+    log_info("memory", "Mapa fisico: %u regioes. Utilizavel: %llu bytes; paginas 4KiB: %llu.",
+        ram->region_count, (unsigned long long)ram->bytes[MEMORY_USABLE], (unsigned long long)ram->usable_pages);
 
     if (boot_option("selftest=interrupts")) interrupts_selftest();
     if (boot_option("selftest=doublefault")) interrupts_test_double_fault();
@@ -160,6 +166,7 @@ void kmain(void) {
         log_debug("test", "DEBUG habilitado");
         log_info("test", "Formato: %s %u %x %p %% %s", "ok", 42u, 0x2au,
             (void *)(uintptr_t)0x1234, (const char *)0);
+        log_info("test", "Inteiro 64 bits: %llu", 4294967303ull);
         log_warn("test", "Aviso simulado; inicializacao continua.");
         log_error("test", "Erro recuperavel simulado; inicializacao continua.");
         log_set_level(LOG_INFO);
