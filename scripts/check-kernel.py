@@ -80,7 +80,7 @@ def type_keyboard_test(monitor_path):
     chord("esc")
 
 
-def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=False, heap=False, memtest=False, processes=False, process_log=None, scheduler=False, user=False):
+def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=False, heap=False, memtest=False, processes=False, process_log=None, scheduler=False, user=False, syscalls=False):
     def chord(*keys):
         items = [(key, True) for key in keys] + [(key, False) for key in reversed(keys)]
         qmp_execute(monitor_path, "input-send-event", {"events": [
@@ -97,6 +97,9 @@ def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=
     def command(value):
         text(value); chord("ret")
 
+    if syscalls:
+        command("pmm"); command("vmm"); command("heap"); command("echo syscalls-ok")
+        return
     if user:
         command("spawnuser")
         deadline = time.monotonic() + 3
@@ -207,7 +210,7 @@ def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=
 
 def boot(mode, scenario, image, firmware, ram_mib=256):
     suffix = mode if scenario == "normal" else f"{scenario}-{mode}"
-    if scenario in ("memory", "pmm", "vmm", "heap", "memtest", "processes", "scheduler", "user", "user-faults"): suffix = f"{scenario}-{ram_mib}-{mode}"
+    if scenario in ("memory", "pmm", "vmm", "heap", "memtest", "processes", "scheduler", "user", "user-faults", "syscalls"): suffix = f"{scenario}-{ram_mib}-{mode}"
     log = Path(f"build/boot-{suffix}.log")
     exceptions = {"divide": (0, "Divide error", "0x0"),
                   "opcode": (6, "Invalid opcode", "0x0"),
@@ -238,6 +241,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
               b"\r\nprocesses-ok\r\n" if scenario == "processes" else
               b"\r\nscheduler-ok\r\n" if scenario == "scheduler" else
               b"\r\nuser-ok\r\n" if scenario in ("user", "user-faults") else
+              b"\r\nsyscalls-ok\r\n" if scenario == "syscalls" else
               b"Terminal pronto. Digite help.")
     with tempfile.TemporaryDirectory(prefix="nexus-qmp-") as directory:
         monitor_path = str(Path(directory) / "monitor.sock")
@@ -252,7 +256,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
         with log.open("wb") as output, subprocess.Popen(
                 command, stdout=output, stderr=subprocess.STDOUT) as process:
             try:
-                deadline = time.monotonic() + (60 if scenario == "user-faults" else 50 if scenario == "processes" else 40 if scenario in ("pmm", "scheduler", "user") else 20)
+                deadline = time.monotonic() + (60 if scenario in ("user-faults", "syscalls") else 50 if scenario == "processes" else 40 if scenario in ("pmm", "scheduler", "user") else 20)
                 injected = False
                 while marker not in log.read_bytes():
                     if process.poll() is not None or time.monotonic() >= deadline:
@@ -296,6 +300,10 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                     if (scenario in ("user", "user-faults") and not injected and
                             b"Terminal pronto. Digite help." in log.read_bytes()):
                         type_terminal_test(monitor_path, user=True, process_log=log)
+                        injected = True
+                    if (scenario == "syscalls" and not injected and
+                            b"Terminal pronto. Digite help." in log.read_bytes()):
+                        type_terminal_test(monitor_path, syscalls=True)
                         injected = True
                     time.sleep(0.1)
                 # O guest deve permanecer ativo, inclusive apos um panic.
@@ -505,6 +513,12 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
         ids = re.findall(rb"Processo Ring3 criado: (\d+)", text)
         if len(ids) != 1: raise RuntimeError(f"spawnuser invalido; consulte {log}")
         required += [b"Processo coletado: " + ids[0] + b" status=42"]
+    if scenario == "syscalls":
+        required += [b"Syscalls: programa C CPL3, write, exit/getpid/yield, sleep bloqueante, GPRs/flags e buffers OK.",
+                     b"SYS-RO-TEXT", b"SYS-STDERR", b"SYS-BIN:\x00Z", b"X-PAGE", b"SYS-WRITE-SLEEP-ABI-OK",
+                     b"Programa de syscalls: status=0", b"Alocacoes ativas: 0"] + memory_baseline
+        if b"FORBIDDEN-PARTIAL" in text or b"[FATAL]" in text:
+            raise RuntimeError(f"Syscall vazou buffer parcial ou causou panic; consulte {log}")
     if any(message not in text for message in required):
         raise RuntimeError(f"Diagnostico incompleto; consulte {log}")
     print(f"OK: {scenario}/{mode}, serial e framebuffer; log: {log}", flush=True)
@@ -527,12 +541,13 @@ def main():
     group.add_argument("--processes", action="store_true", help="Testa processos, contexto, terminal e guarda de pilha.")
     group.add_argument("--scheduler", action="store_true", help="Testa preempcao sem yield, registradores e concorrencia.")
     group.add_argument("--user", action="store_true", help="Testa Ring 3, CR3 privados, TSS e INT80.")
+    group.add_argument("--syscalls", action="store_true", help="Testa ABI C/Assembly, buffers, write e sleep em CPL3.")
     parser.add_argument("--quick", action="store_true", help="Executa uma configuracao de RAM por cenario, mantendo BIOS/UEFI.")
     args = parser.parse_args()
     Path("build").mkdir(exist_ok=True)
     firmware = Path("/usr/share/OVMF/OVMF_CODE_4M.fd")
     if not firmware.is_file(): raise SystemExit("OVMF ausente: instale o pacote ovmf.")
-    scenarios = (("user", "user-faults") if args.user else ("scheduler",) if args.scheduler else ("processes", "process-guard") if args.processes else ("memtest",) if args.memtest else ("access-null", "access-guard-low", "access-guard-high", "access-unmapped", "access-overflow",
+    scenarios = (("syscalls",) if args.syscalls else ("user", "user-faults") if args.user else ("scheduler",) if args.scheduler else ("processes", "process-guard") if args.processes else ("memtest",) if args.memtest else ("access-null", "access-guard-low", "access-guard-high", "access-unmapped", "access-overflow",
                   "access-underflow", "access-freed", "access-doublefree", "access-badfree", "access-nx") if args.access else
                  ("heap",) if args.heap else ("vmm", "vmm-unmapped", "vmm-readonly", "vmm-nx") if args.vmm else
                  ("pmm",) if args.pmm else ("memory",) if args.memory else ("terminal", "terminal-limits") if args.terminal else
@@ -552,7 +567,7 @@ def main():
                 raise RuntimeError(result.stdout.decode(errors="replace"))
         for mode in ("bios", "uefi"):
             previous = 0
-            sizes = (128, 512, 5120) if args.memory or args.pmm or scenario in ("vmm", "heap", "memtest", "processes", "scheduler", "user", "user-faults") else (256,)
+            sizes = (128, 512, 5120) if args.memory or args.pmm or scenario in ("vmm", "heap", "memtest", "processes", "scheduler", "user", "user-faults", "syscalls") else (256,)
             for size in (sizes[:1] if args.quick else sizes):
                 detected = boot(mode, scenario, image, firmware, size)
                 if args.memory:

@@ -225,6 +225,7 @@ void kmain(void) {
     if (boot_option("selftest=scheduler")) scheduler_selftest();
     if (boot_option("selftest=user")) user_mode_selftest();
     if (boot_option("selftest=user-faults")) user_mode_fault_selftest();
+    if (boot_option("selftest=syscalls")) syscall_selftest();
     if (boot_option("selftest=process-guard")) process_selftest(true);
     log_info("boot", "NexusOS: kernel inicial pronto. CPU em espera.");
     power_init(rsdp.response && !boot_option("selftest=power-fallback") ? rsdp.response->address : 0,

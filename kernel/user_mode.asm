@@ -182,4 +182,8 @@ PROBE badirq
     mov rsp, 0x0100000000000000
     jmp $ ; O PIT precisa enviar EOI antes de encerrar este processo.
 END_PROBE badirq
+global user_syscalls_start, user_syscalls_end
+user_syscalls_start:
+    incbin "build/user/syscall-test.bin"
+user_syscalls_end:
 section .note.GNU-stack noalloc noexec nowrite progbits

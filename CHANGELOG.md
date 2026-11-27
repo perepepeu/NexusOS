@@ -2,6 +2,10 @@
 
 ## Em desenvolvimento
 
+- Dispatcher INT80 preemptivel em contexto de tarefa; exit/getpid/yield e sleep em milissegundos.
+- write com stdout/stderr, copia segura, tamanho limitado e saida binaria na serial.
+- Programa C freestanding em CPL3 testa erros, buffers, sono bloqueante e GPRs/flags.
+
 - ABI v1 das syscalls em cabecalho compartilhado com programas C e constantes NASM geradas.
 - Validacao integral de buffers USER, permissoes de escrita, limites e overflow antes da copia.
 

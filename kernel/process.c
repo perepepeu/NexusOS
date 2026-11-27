@@ -9,6 +9,7 @@
 #include <heap.h>
 #include <address_space.h>
 #include <user_mode.h>
+#include <syscall.h>
 
 enum { STACK_PAGES = 4, STACK_STRIDE = 6 * 4096 };
 static struct process_manager manager;
@@ -319,14 +320,14 @@ bool process_user_syscall(struct interrupt_frame *frame) {
     struct thread_control_block *t = &manager.tasks[manager.current];
     KASSERT((uintptr_t)frame >= t->stack && (uintptr_t)(frame + 1) <= t->stack + STACK_PAGES * 4096);
     KASSERT(interrupts_kernel_stack() == t->stack + STACK_PAGES * 4096);
-    switch (frame->rax) {
-        case USER_SYSCALL_EXIT: terminate_current((int)frame->rdi);
-        case USER_SYSCALL_YIELD: t->info.state = PROCESS_READY; schedule(); frame->rax = 0; break;
-        case USER_SYSCALL_GETPID: frame->rax = process_current_pid(); break;
-        case USER_SYSCALL_GETTID: frame->rax = thread_current_tid(); break;
-        case USER_SYSCALL_TICKS: frame->rax = timer_ticks(); break;
-        default: frame->rax = (uint64_t)-38; break;
-    }
+    process_user_return(frame);
+    /* A entrada INT80 e uma interrupt gate. Habilitar IF somente apos validar
+     * origem/frame; APIs de bloqueio usam a pilha desta tarefa e podem dormir.
+     * IRQs aninhadas em CPL0 tambem sao preemptiveis. Nenhum estado e global. */
+    struct address_space *space = manager.processes[slot].space;
+    irq_restore(1u << 9);
+    frame->rax = (uint64_t)syscall_dispatch(space, frame);
+    __asm__ volatile ("cli" : : : "memory");
     return true;
 }
 static struct { uint64_t pid, vector, error, cr2; } last_user_fault;
@@ -456,6 +457,39 @@ void user_mode_fault_selftest(void) {
     KASSERT(before.free_pages == after.free_pages && before.allocated_pages == after.allocated_pages &&
         vb.mapped_pages == va.mapped_pages && vb.table_pages == va.table_pages);
     log_info("test", "User faults: 26 tentativas bloqueadas, vitima preservada, kernel ativo e memoria restaurada OK.");
+}
+
+static volatile bool syscall_test_finished;
+static uint64_t syscall_test_pid;
+static volatile unsigned int syscall_sleep_observed;
+static void syscall_witness(void *argument) {
+    (void)argument;
+    while (!syscall_test_finished) {
+        uint64_t flags = irq_save();
+        int pcb = process_core_find(&manager, syscall_test_pid);
+        if (pcb >= 0 && manager.processes[pcb].info.state == PROCESS_BLOCKED &&
+                manager.processes[pcb].info.blocked_on == PROCESS_BLOCK_SLEEP) ++syscall_sleep_observed;
+        irq_restore(flags); process_sleep(1);
+    }
+}
+extern const unsigned char user_syscalls_start[], user_syscalls_end[];
+void syscall_selftest(void) {
+    struct pmm_stats before, after; struct vmm_stats vb, va;
+    pmm_get_stats(&before); vmm_get_stats(&vb);
+    syscall_test_finished = false; syscall_sleep_observed = 0;
+    process_preempt_disable();
+    syscall_test_pid = process_create_user("syscalls", user_syscalls_start,
+        (uintptr_t)user_syscalls_end - (uintptr_t)user_syscalls_start, 0, (uintptr_t)&kernel_secret);
+    uint64_t witness = process_create("syscall-witness", syscall_witness, 0);
+    KASSERT(syscall_test_pid && witness); process_preempt_enable();
+    int status; KASSERT(process_wait(syscall_test_pid, &status));
+    log_info("test", "Programa de syscalls: status=%u", (unsigned int)status);
+    KASSERT(status == 0 && syscall_sleep_observed && kernel_secret == 0x53a9bc71de402816ull);
+    syscall_test_finished = true; KASSERT(process_wait(witness, &status) && status == 0);
+    pmm_get_stats(&after); vmm_get_stats(&va);
+    KASSERT(before.free_pages == after.free_pages && before.allocated_pages == after.allocated_pages &&
+        vb.mapped_pages == va.mapped_pages && vb.table_pages == va.table_pages);
+    log_info("test", "Syscalls: programa C CPL3, write, exit/getpid/yield, sleep bloqueante, GPRs/flags e buffers OK.");
 }
 
 static volatile unsigned int order[12], order_count;

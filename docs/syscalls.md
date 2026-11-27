@@ -25,7 +25,7 @@ um retorno negativo e o proprio erro.
 Os numeros 0..4 sao compativeis com os programas iniciais de Ring 3.
 `kernel/include/syscall_abi.h` e a fonte das constantes C/NASM; o Makefile gera
 o include NASM. `user/include/syscall.h` fornece wrappers C freestanding.
-As entradas 5..7 foram reservadas nesta etapa de definicao da ABI.
+write/sleep estao implementadas; read permanece reservada ate a etapa de entrada.
 
 Buffers devem estar inteiramente na metade baixa, em paginas USER presentes.
 O destino de read tambem exige permissao WRITE efetiva em todos os niveis.
@@ -41,7 +41,8 @@ sem acessar o ponteiro, mesmo que ele seja nulo ou invalido. Dados sao bytes,
 sem terminador NUL obrigatorio; strings nao sao formatos de log.
 
 sleep aceita 0..INT64_MAX milissegundos. Valores positivos sao arredondados
-para cima a ticks de 10 ms, sem overflow na soma. Zero equivale a yield.
+para cima a ticks de 10 ms, com um tick extra para cobrir a fase corrente do
+PIT, sem overflow na soma. Zero equivale a yield.
 O prazo usa o PIT; a tarefa bloqueia e outras tarefas continuam executando.
 
 read usa o teclado PS/2 compartilhado com o terminal, sem edicao de linha nem

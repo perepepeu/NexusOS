@@ -194,14 +194,15 @@ static void console_input_unlocked(const char *prompt, const char *line, unsigne
     cursor_x = MARGIN + caret * CELL_WIDTH;
 }
 
-static void console_write_unlocked(const char *text) {
+static void console_write_n_unlocked(const char *text, size_t bytes) {
     if (!screen) return;
     if (input_caret) {
         cell(caret_x, caret_y, caret_character);
         input_caret = false;
     }
-    while (*text) {
+    while (bytes--) {
         char c = *text++;
+        if (!c) continue; /* NUL e um byte transferido, sem glifo no framebuffer. */
         if (c == '\n') { newline(); continue; }
         if (c == '\r') { cursor_x = MARGIN; continue; }
         if (c == '\b') {
@@ -230,5 +231,9 @@ void console_input(const char *prompt, const char *line, unsigned int cursor) {
     uint64_t flags = irq_save(); console_input_unlocked(prompt, line, cursor); irq_restore(flags);
 }
 void console_write(const char *text) {
-    uint64_t flags = irq_save(); console_write_unlocked(text); irq_restore(flags);
+    size_t bytes = 0; while (text[bytes]) ++bytes;
+    console_write_n(text, bytes);
+}
+void console_write_n(const char *text, size_t bytes) {
+    uint64_t flags = irq_save(); console_write_n_unlocked(text, bytes); irq_restore(flags);
 }

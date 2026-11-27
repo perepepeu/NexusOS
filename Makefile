@@ -13,6 +13,7 @@ KERNEL_OBJECTS += build/kernel/runtime.o
 KERNEL_OBJECTS += build/kernel/resource_core.o build/kernel/process_resources.o
 KERNEL_OBJECTS += build/kernel/address_space_core.o build/kernel/address_space.o
 KERNEL_OBJECTS += build/kernel/user_mode.o
+KERNEL_OBJECTS += build/kernel/syscall.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -53,7 +54,23 @@ build/include/syscall_abi.inc: kernel/include/syscall_abi.h scripts/gen-syscall-
 	mkdir -p $(@D)
 	python3 scripts/gen-syscall-abi.py $< $@
 
-build/kernel/user_mode.o: kernel/user_mode.asm toolchain.mk Makefile build/include/syscall_abi.inc | check-kernel-arch
+USER_CFLAGS := -std=c11 -ffreestanding -fno-stack-protector -fno-pie -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m64 -mno-red-zone -mgeneral-regs-only -Os -Wall -Wextra -Werror -Iuser/include -Ikernel/include
+
+build/user/%.o: user/%.c user/include/syscall.h kernel/include/syscall_abi.h Makefile
+	mkdir -p $(@D)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+build/user/syscall_registers.o: user/syscall_registers.asm build/include/syscall_abi.inc Makefile
+	mkdir -p $(@D)
+	$(AS) $(ASFLAGS) -Ibuild/include/ $< -o $@
+
+build/user/syscall-test.elf: build/user/syscall_test.o build/user/syscall_registers.o user/linker.ld
+	$(LD) -nostdlib -m elf_x86_64 -T user/linker.ld build/user/syscall_test.o build/user/syscall_registers.o -o $@
+
+build/user/syscall-test.bin: build/user/syscall-test.elf
+	objcopy -O binary $< $@
+
+build/kernel/user_mode.o: kernel/user_mode.asm toolchain.mk Makefile build/include/syscall_abi.inc build/user/syscall-test.bin | check-kernel-arch
 	mkdir -p $(@D)
 	$(AS) $(ASFLAGS) -Ibuild/include/ $< -o $@
 
@@ -174,6 +191,10 @@ check-address-space-unit:
 .PHONY: check-user
 check-user: iso check-address-space-unit
 	python3 scripts/check-kernel.py --user
+
+.PHONY: check-syscalls
+check-syscalls: iso check-address-space-unit
+	python3 scripts/check-kernel.py --syscalls
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader

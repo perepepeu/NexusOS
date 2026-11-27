@@ -28,3 +28,11 @@ void serial_write(const char *message) {
     }
     irq_restore(flags);
 }
+void serial_write_n(const char *message, size_t bytes) {
+    uint64_t flags = irq_save();
+    for (size_t i = 0; i < bytes; ++i) {
+        if (message[i] == '\n') putc('\r');
+        putc(message[i]);
+    }
+    irq_restore(flags);
+}

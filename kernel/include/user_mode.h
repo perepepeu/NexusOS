@@ -12,5 +12,6 @@ bool process_user_fault(struct interrupt_frame *frame, uint64_t cr2);
 void process_user_return(struct interrupt_frame *frame);
 void user_mode_selftest(void);
 void user_mode_fault_selftest(void);
+void syscall_selftest(void);
 uint64_t process_user_demo(void);
 #endif
