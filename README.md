@@ -1,5 +1,8 @@
 # NexusOS
 
+Versao atual: **0.0.1**. A versao fica registrada em `VERSION` e na tag Git
+`v0.0.1`. Veja as entregas em [CHANGELOG.md](CHANGELOG.md).
+
 ## Compilador C e Assembly
 
 Ambiente: Ubuntu 24.04 no WSL 2, com GCC 13, NASM 2.16 e GNU Binutils.
