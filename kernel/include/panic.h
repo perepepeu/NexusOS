@@ -12,6 +12,7 @@ enum kernel_error {
     ERR_PAGE_ALLOCATOR = 7,
     ERR_VIRTUAL_MEMORY = 8,
     ERR_HEAP = 9,
+    ERR_MEMORY_ACCESS = 10,
 };
 
 struct panic_context {
@@ -23,6 +24,8 @@ __attribute__((noreturn)) void kernel_exception(const char *name,
 __attribute__((noreturn)) void kernel_halt(void);
 __attribute__((noreturn)) void kernel_panic(enum kernel_error code,
     const char *message, const char *file, unsigned int line);
+__attribute__((noreturn)) void kernel_memory_panic(const char *message,
+    uint64_t address, const char *file, unsigned int line);
 
 #define PANIC(code, message) kernel_panic(code, message, __FILE__, __LINE__)
 #define KASSERT(expression) do { \

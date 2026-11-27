@@ -2,6 +2,11 @@
 
 ## Em desenvolvimento
 
+- Diagnostico de page fault com tipo de acesso, causa, bits da CPU e regiao.
+- Guardas ausentes antes/depois das arenas e redzones por bloco no heap.
+- Auditoria de metadados, veneno de blocos livres e panic 10 para corrupcao.
+- Comando heap verifica integridade; dez falhas reais testadas em BIOS/UEFI.
+
 - Heap do kernel com kmalloc/kcalloc/krealloc/kfree e alinhamento de 16 bytes.
 - Arenas sob demanda em paginas RW/NX, divisao/fusao e devolucao ao PMM/VMM.
 - Rollback de mapeamentos parciais, verificacao de overflow e comando heap.

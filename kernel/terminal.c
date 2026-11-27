@@ -87,7 +87,9 @@ static void virtual_summary(void) {
 }
 
 static void heap_summary(void) {
+    heap_check();
     struct heap_stats s; heap_get_stats(&s);
+    put("Integridade do heap: OK.\n");
     put("Heap do kernel - alinhamento 16 bytes\nAlocacoes ativas: "); number(s.allocations, true);
     put("\nArenas ativas: "); number(s.arenas, true);
     memory_bytes("\nBytes solicitados: ", s.requested_bytes);

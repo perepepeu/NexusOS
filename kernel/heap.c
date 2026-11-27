@@ -13,7 +13,7 @@ static unsigned char used[HEAP_PAGES];
 /* Injecao local, habilitada somente durante selftest=heap. */
 static int fail_after = -1;
 
-static void release(void *pointer, size_t bytes) {
+static void unmap_data(void *pointer, size_t bytes) {
     size_t start = ((uintptr_t)pointer - base) / 4096, pages = bytes / 4096;
     for (size_t i = 0; i < pages; ++i) {
         uint64_t physical;
@@ -22,13 +22,18 @@ static void release(void *pointer, size_t bytes) {
         used[start + i] = 0;
     }
 }
+static void release(void *pointer, size_t bytes) {
+    size_t start = ((uintptr_t)pointer - base) / 4096;
+    unmap_data(pointer, bytes);
+    used[start - 1] = 0; used[start + bytes / 4096] = 0;
+}
 static void *acquire(size_t bytes) {
     size_t pages = bytes / 4096, run = 0;
-    if (!pages || pages > HEAP_PAGES) return 0;
+    if (!pages || pages > HEAP_PAGES - 2) return 0;
     for (size_t i = 0; i < HEAP_PAGES; ++i) {
         run = used[i] ? 0 : run + 1;
-        if (run < pages) continue;
-        size_t start = i + 1 - pages, mapped = 0;
+        if (run < pages + 2) continue;
+        size_t start = i - pages, mapped = 0;
         void *pointer = (void *)(uintptr_t)(base + start * 4096);
         for (; mapped < pages; ++mapped) {
             if (fail_after == 0) break;
@@ -37,10 +42,25 @@ static void *acquire(size_t bytes) {
             if (vmm_alloc_page(base + (start + mapped) * 4096, VMM_WRITE, &physical) != VMM_OK) break;
             used[start + mapped] = 1;
         }
-        if (mapped != pages) { release(pointer, mapped * 4096); return 0; }
+        if (mapped != pages) { unmap_data(pointer, mapped * 4096); return 0; }
+        used[start - 1] = 2; used[start + pages] = 2;
         return pointer;
     }
     return 0;
+}
+const char *heap_address_kind(uint64_t address) {
+    if (!heap.stats.ready || address < base || address - base >= HEAP_PAGES * 4096ull) return "fora do heap";
+    unsigned char kind = used[(address - base) / 4096];
+    return kind == 2 ? "pagina de guarda do heap" : kind == 1 ? "pagina de dados do heap" : "pagina livre do heap";
+}
+static void verify_result(void) {
+    if (heap.error == HEAP_OK) return;
+    const char *reason = heap.error == HEAP_INVALID_POINTER ? "ponteiro invalido ou double free" :
+        heap.error == HEAP_FREED_WRITE ? "escrita em bloco livre (use-after-free)" : "limites ou metadados do heap corrompidos";
+    kernel_memory_panic(reason, heap.error_address, __FILE__, __LINE__);
+}
+void heap_check(void) {
+    uint64_t flags = irq_save(); heap_core_check(&heap); verify_result(); irq_restore(flags);
 }
 bool heap_init(void) {
     struct vmm_stats v;
@@ -50,18 +70,49 @@ bool heap_init(void) {
     return heap_core_init(&heap, (struct heap_ops){acquire, release});
 }
 void *kmalloc(size_t size) {
-    uint64_t flags = irq_save(); void *p = heap_core_alloc(&heap, size); irq_restore(flags); return p;
+    uint64_t flags = irq_save(); void *p = heap_core_alloc(&heap, size); verify_result(); irq_restore(flags); return p;
 }
 void *kcalloc(size_t count, size_t size) {
-    uint64_t flags = irq_save(); void *p = heap_core_calloc(&heap, count, size); irq_restore(flags); return p;
+    uint64_t flags = irq_save(); void *p = heap_core_calloc(&heap, count, size); verify_result(); irq_restore(flags); return p;
 }
 void *krealloc(void *pointer, size_t size) {
     uint64_t flags = irq_save();
-    KASSERT(!pointer || heap_core_contains(&heap, pointer));
-    void *p = heap_core_realloc(&heap, pointer, size); irq_restore(flags); return p;
+    void *p = heap_core_realloc(&heap, pointer, size); verify_result(); irq_restore(flags); return p;
 }
 void kfree(void *pointer) {
-    uint64_t flags = irq_save(); KASSERT(heap_core_free(&heap, pointer)); irq_restore(flags);
+    uint64_t flags = irq_save(); heap_core_free(&heap, pointer); verify_result(); irq_restore(flags);
+}
+void heap_access_selftest(unsigned int scenario) {
+    if (scenario == 1) {
+        log_info("test", "Acesso invalido em %p", (void *)0);
+        __asm__ volatile ("movb (%0), %%al" : : "r"((uintptr_t)0) : "rax", "memory");
+    }
+    volatile unsigned char *a = kmalloc(31);
+    KASSERT(a);
+    uint64_t fault = 0;
+    if (scenario == 2) fault = base;
+    if (scenario == 3) fault = base + 5 * 4096;
+    if (scenario == 4) { fault = (uintptr_t)a; kfree((void *)a); }
+    if (fault) {
+        log_info("test", "Acesso invalido em %p", (void *)(uintptr_t)fault);
+        if (scenario == 4) __asm__ volatile ("movb (%0), %%al" : : "r"(fault) : "rax", "memory");
+        else __asm__ volatile ("movb $1, (%0)" : : "r"(fault) : "memory");
+    }
+    if (scenario == 5) { a[31] = 0; kfree((void *)a); }
+    if (scenario == 6) { a[-1] = 0; heap_check(); }
+    if (scenario == 7 || scenario == 8) {
+        KASSERT(kmalloc(31)); /* Mantem a arena mapeada apos liberar a. */
+        kfree((void *)a);
+        if (scenario == 7) { a[0] = 0; heap_check(); }
+        else kfree((void *)a);
+    }
+    if (scenario == 9) kfree((void *)(a + 1));
+    if (scenario == 10) {
+        a[0] = 0xc3;
+        log_info("test", "Acesso invalido em %p", (void *)a);
+        ((void (*)(void))(uintptr_t)a)();
+    }
+    PANIC(ERR_SELFTEST, "Acesso invalido nao foi detectado.");
 }
 void heap_get_stats(struct heap_stats *out) {
     if (!out) return;

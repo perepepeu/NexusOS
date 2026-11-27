@@ -35,10 +35,24 @@ int main(void) {
     unsigned char *a = heap_core_alloc(&s, 1000), *b = heap_core_alloc(&s, 1000), *c = heap_core_alloc(&s, 1000);
     assert(a && b && c && (uintptr_t)a % 16 == 0);
     memset(a, 0x57, 1000);
+    assert(heap_core_check(&s) == HEAP_OK);
+    a[1000] = 0;
+    assert(heap_core_check(&s) == HEAP_CORRUPTION && s.error_address == (uintptr_t)(a + 1000));
+    assert(!heap_core_free(&s, a)); /* Corrupcao nao libera nem altera contadores. */
+    a[1000] = 0x5a;
+    a[-1] = 0;
+    assert(heap_core_check(&s) == HEAP_CORRUPTION);
+    a[-1] = 0xa5;
+    assert(heap_core_check(&s) == HEAP_OK);
     assert(!heap_core_free(&s, a + 1));
     fail = true; assert(!heap_core_realloc(&s, a, 50000)); fail = false;
     for (size_t i = 0; i < 1000; ++i) assert(a[i] == 0x57);
     assert(heap_core_free(&s, b)); assert(!heap_core_free(&s, b));
+    b[0] = 0;
+    assert(heap_core_check(&s) == HEAP_FREED_WRITE && s.error_address == (uintptr_t)b);
+    assert(!heap_core_alloc(&s, 10));
+    b[0] = 0xdd;
+    assert(heap_core_check(&s) == HEAP_OK);
     assert(heap_core_free(&s, a));
     void *d = heap_core_alloc(&s, 2000); assert(d == a && live_arenas == 1);
     assert(heap_core_free(&s, c) && heap_core_free(&s, d)); empty(&s);
@@ -48,6 +62,9 @@ int main(void) {
     b = heap_core_realloc(&s, a, 80000); assert(b);
     for (size_t i = 0; i < 36000; ++i) assert(b[i] == 9);
     assert(heap_core_realloc(&s, b, 30) == b);
+    b[30] = 0;
+    assert(heap_core_check(&s) == HEAP_CORRUPTION);
+    b[30] = 0x5a;
     assert(!heap_core_realloc(&s, b, 0)); empty(&s);
     assert(!heap_core_free(&s, b));
     assert(!heap_core_realloc(&s, (void *)(uintptr_t)1, 20));
@@ -75,6 +92,7 @@ int main(void) {
         for (size_t i = 0; i < 64; ++i) if (items[i].p) { requested += items[i].size; ++allocations; }
         assert(s.stats.allocations == allocations && s.stats.requested_bytes == requested);
         assert(s.stats.mapped_bytes == live_bytes && s.stats.arenas == live_arenas);
+        assert(heap_core_check(&s) == HEAP_OK);
     }
     for (size_t i = 0; i < 64; ++i) if (items[i].p) {
         for (size_t j = 0; j < items[i].size; ++j) assert(items[i].p[j] == items[i].value);

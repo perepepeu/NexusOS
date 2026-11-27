@@ -164,7 +164,18 @@ void kmain(void) {
     if (boot_option("selftest=vmm-nx")) vmm_selftest(hhdm.response->offset, 3);
     if (!heap_init()) PANIC(ERR_HEAP, "Nao foi possivel iniciar o heap do kernel.");
     log_info("heap", "Heap pronto: alinhamento 16 bytes; limite virtual 64 MiB, sob demanda.");
+    log_info("heap", "Protecao: guardas de arena, redzones e veneno de blocos livres ativos.");
     if (boot_option("selftest=heap")) heap_selftest();
+    if (boot_option("selftest=access-null")) heap_access_selftest(1);
+    if (boot_option("selftest=access-guard-low")) heap_access_selftest(2);
+    if (boot_option("selftest=access-guard-high")) heap_access_selftest(3);
+    if (boot_option("selftest=access-unmapped")) heap_access_selftest(4);
+    if (boot_option("selftest=access-overflow")) heap_access_selftest(5);
+    if (boot_option("selftest=access-underflow")) heap_access_selftest(6);
+    if (boot_option("selftest=access-freed")) heap_access_selftest(7);
+    if (boot_option("selftest=access-doublefree")) heap_access_selftest(8);
+    if (boot_option("selftest=access-badfree")) heap_access_selftest(9);
+    if (boot_option("selftest=access-nx")) heap_access_selftest(10);
 
     if (boot_option("selftest=interrupts")) interrupts_selftest();
     if (boot_option("selftest=doublefault")) interrupts_test_double_fault();

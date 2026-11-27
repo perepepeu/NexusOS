@@ -157,8 +157,14 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                   "doublefault": (8, "Double fault", "0x0"),
                   "vmm-unmapped": (14, "Page fault", "0x0"),
                   "vmm-readonly": (14, "Page fault", "0x3"),
-                  "vmm-nx": (14, "Page fault", "0x11")}
-    fatal = scenario in ("panic", "assert") or scenario in exceptions
+                  "vmm-nx": (14, "Page fault", "0x11"),
+                  "access-null": (14, "Page fault", "0x0"),
+                  "access-guard-low": (14, "Page fault", "0x2"),
+                  "access-guard-high": (14, "Page fault", "0x2"),
+                  "access-unmapped": (14, "Page fault", "0x0"),
+                  "access-nx": (14, "Page fault", "0x11")}
+    heap_errors = {"access-overflow", "access-underflow", "access-freed", "access-doublefree", "access-badfree"}
+    fatal = scenario in ("panic", "assert") or scenario in exceptions or scenario in heap_errors
     marker = (b"Sistema interrompido. Reinicie a maquina." if fatal else
               b"code=1 down=0 mods=0 char=0" if scenario == "keyboard" else
               b"[keyboard] Entrada: A" if scenario == "keyboard-echo" else
@@ -235,10 +241,11 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
     if list(map(int, records)) != list(range(1, len(records) + 1)):
         raise RuntimeError(f"Sequencia de logs incorreta; consulte {log}")
     if fatal:
-        code = 5 if scenario in exceptions else 3 if scenario == "panic" else 4
+        code = 5 if scenario in exceptions else 10 if scenario in heap_errors else 3 if scenario == "panic" else 4
         required += [f"[FATAL] [panic] KERNEL PANIC codigo={code}:".encode(), marker]
         if (b"kernel inicial pronto" in text or
-                (scenario not in exceptions and not re.search(rb"Origem: kernel/main.c:\d+", text))):
+                (scenario not in exceptions and not re.search(
+                    rb"Origem: kernel/heap.c:\d+" if scenario in heap_errors else rb"Origem: kernel/main.c:\d+", text))):
             raise RuntimeError(f"Panic sem origem ou boot continuou; consulte {log}")
         if scenario == "assert": required += [b"Assert falhou: false"]
         if scenario in exceptions:
@@ -253,6 +260,24 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                 if not window: raise RuntimeError(f"Janela virtual ausente; consulte {log}")
                 required += [f"CR2=0x{int(window[1], 16) + 0x5000:x}".encode(),
                              b"VMM: CR3, aliases, isolamento, permissoes e limpeza OK."]
+            if vector == 14:
+                error_bits = int(error, 16)
+                access = "execucao" if error_bits & 16 else "escrita" if error_bits & 2 else "leitura"
+                cause = "protecao violada" if error_bits & 1 else "pagina ausente"
+                required += [f"Acesso={access} Modo=supervisor Causa={cause}".encode(), b"RSVD=0 PK=0 SS=0 SGX=0"]
+            if scenario.startswith("access-"):
+                target = re.search(rb"Acesso invalido em (0x[0-9a-f]+)", text)
+                if not target: raise RuntimeError(f"Endereco de teste ausente; consulte {log}")
+                required += [b"CR2=" + target[1]]
+                region = ("pagina nula" if scenario == "access-null" else
+                          "pagina livre do heap" if scenario == "access-unmapped" else
+                          "pagina de dados do heap" if scenario == "access-nx" else "pagina de guarda do heap")
+                required += [f"Regiao: {region}".encode()]
+        if scenario in heap_errors:
+            reason = ("escrita em bloco livre (use-after-free)" if scenario == "access-freed" else
+                      "ponteiro invalido ou double free" if scenario in ("access-doublefree", "access-badfree") else
+                      "limites ou metadados do heap corrompidos")
+            required += [reason.encode(), b"[FATAL] [memory] Endereco detectado=0x"]
     else:
         required += [marker, b"PS/2 pronto: IRQ1, scancodes set 1, layout US.",
                      b"NexusOS: kernel inicial pronto. CPU em espera."]
@@ -334,6 +359,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
         if ram_mib > 4096: required += [b"VMM: frame acima de 4 GiB mapeado e acessado OK."]
     if scenario == "heap":
         required += [b"Heap: alinhamento, zero, realloc, fusao e devolucao ao PMM/VMM OK.",
+                     b"Integridade do heap: OK.",
                      b"Heap do kernel - alinhamento 16 bytes", b"Alocacoes ativas: 0",
                      b"Arenas ativas: 0", b"Bytes solicitados: 0 bytes", b"Bytes mapeados: 0 bytes",
                      b"Paginas mapeadas: 0", b"Tabelas proprias: 1 paginas", b"Paginas alocadas: 1"]
@@ -354,11 +380,14 @@ def main():
     group.add_argument("--pmm", action="store_true", help="Testa alocacao fisica e paginas acima de 4 GiB.")
     group.add_argument("--vmm", action="store_true", help="Testa mapeamentos virtuais e protecoes na CPU.")
     group.add_argument("--heap", action="store_true", help="Testa heap e devolucao de paginas em BIOS/UEFI.")
+    group.add_argument("--access", action="store_true", help="Testa acessos invalidos e diagnosticos do heap/CPU.")
     args = parser.parse_args()
     Path("build").mkdir(exist_ok=True)
     firmware = Path("/usr/share/OVMF/OVMF_CODE_4M.fd")
     if not firmware.is_file(): raise SystemExit("OVMF ausente: instale o pacote ovmf.")
-    scenarios = (("heap",) if args.heap else ("vmm", "vmm-unmapped", "vmm-readonly", "vmm-nx") if args.vmm else
+    scenarios = (("access-null", "access-guard-low", "access-guard-high", "access-unmapped", "access-overflow",
+                  "access-underflow", "access-freed", "access-doublefree", "access-badfree", "access-nx") if args.access else
+                 ("heap",) if args.heap else ("vmm", "vmm-unmapped", "vmm-readonly", "vmm-nx") if args.vmm else
                  ("pmm",) if args.pmm else ("memory",) if args.memory else ("terminal", "terminal-limits") if args.terminal else
                  ("keyboard", "keyboard-echo") if args.keyboard else ("logs", "panic", "assert") if args.errors else
                  ("interrupts", "divide", "opcode", "pagefault", "protection", "doublefault")

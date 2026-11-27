@@ -114,6 +114,10 @@ check-heap-unit:
 check-heap: iso check-heap-unit
 	python3 scripts/check-kernel.py --heap
 
+.PHONY: check-access
+check-access: iso check-heap-unit
+	python3 scripts/check-kernel.py --access
+
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader
 bootloader-iso: iso

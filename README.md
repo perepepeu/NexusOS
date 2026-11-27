@@ -148,6 +148,8 @@ Uma reentrada no handler usa uma mensagem minima na serial.
 | 6 | Mapa de memoria fisica ausente ou invalido |
 | 7 | Falha ao inicializar o alocador de paginas fisicas |
 | 8 | Falha ao inicializar a memoria virtual |
+| 9 | Falha ao inicializar o heap |
+| 10 | Ponteiro invalido ou corrupcao detectada no heap |
 
 ```sh
 make check-kernel  # Boot normal, BIOS e UEFI
@@ -538,8 +540,9 @@ Os ponteiros tem alinhamento de 16 bytes. `kmalloc(0)`, produtos com overflow
 em `kcalloc` e pedidos que nao cabem retornam NULL. `krealloc(NULL, n)` aloca;
 `krealloc(p, 0)` libera; se o crescimento falhar, o bloco original continua
 valido e preserva os dados. `kfree(NULL)` e aceito. Ponteiros invalidos e
-liberacoes duplicadas detectadas causam assertion/panic; nao ha deteccao geral
-de uso apos liberar nem de escrita fora dos limites.
+liberacoes duplicadas detectadas causam panic de memoria (codigo 10).
+Redzones e veneno de blocos livres ajudam a detectar escritas invalidas;
+os limites dessas verificacoes estao descritos abaixo.
 
 O heap usa first fit, divisao de blocos e fusao de vizinhos livres. Cada arena
 tem pelo menos 16 KiB, cresce em multiplos de 4 KiB e pode conter varios blocos.
@@ -550,7 +553,7 @@ mantem sua capacidade ate a liberacao.
 
 O intervalo `[window_base + 1 GiB, window_base + 1 GiB + 64 MiB)` fica reservado
 ao heap dentro da janela do VMM. Outros clientes do VMM devem evitar esse
-intervalo. O limite de 64 MiB inclui metadados e fragmentacao; a memoria fisica
+intervalo. O limite de 64 MiB inclui metadados, guardas e fragmentacao; a memoria fisica
 e adquirida somente sob demanda. Todas as paginas do heap sao supervisor,
 gravaveis e NX. `heap_init` nao aloca paginas e nao altera o baseline do PMM.
 
@@ -571,6 +574,50 @@ O QEMU testa BIOS/UEFI com 128, 512 e 5120 MiB, incluindo falha injetada apos
 mapear duas paginas, paginas RW/NX e retorno dos contadores PMM/VMM ao estado
 anterior. O comando `heap` mostra alocacoes, arenas, bytes pedidos e mapeados.
 O codigo de panic 9 identifica falha de inicializacao do heap.
+
+## Deteccao de acessos invalidos
+
+O handler de page fault (vetor 14) registra CR2, RIP, RSP e o erro bruto da CPU,
+alem de decodificar leitura/escrita/execucao, supervisor/usuario, pagina ausente
+ou violacao de protecao e os bits RSVD/PK/SS/SGX. Identifica a pagina nula e,
+apos iniciar o heap, paginas de dados, guardas e intervalos atualmente livres
+do heap. A falha e fatal; nao ha recuperacao automatica ou alocacao no handler.
+O diagnostico consulta somente o registro estatico das paginas do heap, sem
+percorrer seus metadados possivelmente corrompidos.
+
+Cada arena do heap recebe uma pagina virtual ausente antes e outra depois da
+area de dados. Elas nao consomem frames fisicos e provocam page fault imediato
+quando atingidas. Uma arena completamente liberada fica desmapeada: acessar
+seu antigo endereco tambem provoca page fault, enquanto nao houver reutilizacao.
+
+Cada bloco tem uma redzone de 16 bytes antes do ponteiro e pelo menos 16 bytes
+apos o tamanho solicitado; o padding tambem e verificado. Blocos livres ainda
+mapeados sao preenchidos com 0xDD. Antes de alocar, liberar ou realocar um
+bloco, o heap verifica redzones, veneno, estrutura dos blocos e contadores.
+`heap_check()` permite solicitar essa verificacao; o comando `heap` a executa
+antes de mostrar as estatisticas. Corromper uma redzone, o veneno ou metadados
+verificados gera panic 10 com o endereco detectado. Um ponteiro invalido em
+free/realloc e rejeitado antes de acessar dados apontados por ele.
+
+Estas verificacoes nao instrumentam cada acesso de C. Uma escrita dentro de
+uma pagina mapeada pode ser detectada apenas na proxima verificacao; uma
+leitura de redzone ou de um bloco livre ainda mapeado nao e detectada. Guardas
+sao por arena, nao por objeto. Escritas que pulam redzones, que restauram o
+padrao esperado ou acessam um endereco ja reutilizado podem passar despercebidas.
+Nao ha KASAN, shadow memory, quarentena ou deteccao completa de uso apos liberar.
+O HHDM preservado continua oferecendo aliases fisicos; estas protecoes cobrem
+os enderecos virtuais do heap. A auditoria acrescenta custo linear no heap.
+
+```sh
+make check-access
+```
+
+O teste provoca dez falhas separadas em BIOS e UEFI: leitura nula, escrita nas
+guardas inferior e superior, leitura apos desmapear uma arena, overflow,
+underflow, escrita em bloco livre ainda mapeado, double free, free de ponteiro
+interior e execucao no heap NX. Confere panic, CR2, tipo de acesso e regiao,
+mantendo a VM interrompida para diagnostico. Os testes do heap com ASan/UBSan
+tambem corrompem e restauram redzones e veneno para validar os detectores.
 
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1
