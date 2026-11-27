@@ -12,7 +12,7 @@ make check-toolchain ARCH=i686
 ```
 
 O primeiro comando verifica x86 de 64 bits; o segundo verifica x86 de 32 bits.
-A arquitetura definitiva do sistema ainda pode ser escolhida.
+O kernel inicial usa x86_64; i686 permanece apenas como teste do compilador.
 
 As opcoes ficam em `toolchain.mk`: C freestanding, sem PIE, sem protetor de
 pilha dependente do runtime e sem bibliotecas do Linux. O NASM produz objetos
@@ -32,30 +32,57 @@ No Ubuntu/WSL, instale as dependencias caso esteja preparando outra maquina:
 sudo apt-get update
 sudo apt-get install build-essential nasm xorriso curl python3 qemu-system-x86 ovmf
 make setup-limine
-make check-bootloader
+make check-kernel
 ```
 
 Limine 12.11.1 e baixado da release oficial, com versao e SHA-256 fixos no
 script `scripts/setup-limine.sh`. Seus binarios e licencas ficam em
 `vendor/limine`, fora do Git. A ferramenta de instalacao BIOS e compilada no WSL.
 
-`make bootloader-iso` gera `build/nexusos-bootloader.iso`, com boot BIOS e UEFI
-x86_64. A imagem desta etapa contem apenas o bootloader, sem kernel.
-O menu fica aberto; selecionar NexusOS ainda resulta em erro de kernel ausente.
-O caminho reservado para o kernel e `/boot/kernel.elf`, em `boot/limine.conf`.
+`make` ou `make iso` gera `build/nexusos.iso`, com boot BIOS e UEFI x86_64.
+A imagem inclui o kernel em `/boot/kernel.elf`, conforme `boot/limine.conf`.
+O Limine inicia o kernel automaticamente apos 3 segundos; Enter inicia antes.
 
 Para abrir o menu no terminal:
 
 ```sh
-make run-bootloader       # BIOS
-make run-bootloader-uefi  # UEFI com OVMF
+make run       # BIOS
+make run-uefi  # UEFI com OVMF
 ```
 
 Use Ctrl+A, depois X, para sair do QEMU. A serial funciona sem interface grafica
 ou WSLg. Os comandos usam emulacao TCG, sem depender de permissoes KVM.
-O teste `make check-bootloader` inicia as duas variantes sem interface grafica
-e verifica a presenca do menu na serial. Logs ficam em `build/boot-bios.log`
-e `build/boot-uefi.log`. Isso valida o bootloader, ainda sem executar um kernel.
+O teste `make check-kernel` inicia as duas variantes sem interface grafica,
+verifica a resposta do protocolo Limine e a mensagem final do kernel na serial,
+e confirma que a VM permanece ativa ate ser encerrada pelo teste (20s por modo).
+Logs ficam em `build/boot-bios.log` e `build/boot-uefi.log`.
+Os comandos anteriores `run-bootloader`, `run-bootloader-uefi`, `bootloader-iso`
+e `check-bootloader` continuam disponiveis como aliases para a imagem completa.
+A imagem antiga `build/nexusos-bootloader.iso` nao e mais utilizada.
+
+## Kernel inicial
+
+`make kernel` compila `build/kernel.elf` sem bibliotecas ou runtime do Linux.
+O kernel e carregado no endereco virtual `0xffffffff80000000`, com segmentos
+separados para codigo, constantes e dados. A entrada Assembly configura uma
+pilha de 16 KiB alinhada a 16 bytes e chama `kmain` em C.
+
+O kernel valida a revisao base 6 do protocolo Limine, consulta a identificacao
+do bootloader e escreve pela porta serial COM1 a 115200 baud:
+
+```text
+NexusOS: iniciando kernel x86_64...
+Bootloader: Limine 12.11.1
+Protocolo Limine: OK
+NexusOS: kernel inicial pronto. CPU em espera.
+```
+
+Ao terminar, a CPU aguarda com `cli; hlt`, sem consumir um nucleo em loop ativo.
+Ainda nao ha shell, teclado, framebuffer ou interrupcoes configuradas. A saida
+do kernel aparece no terminal serial dos comandos `make run` e `make run-uefi`.
+O header oficial do protocolo e versionado em `kernel/include/limine.h`, com
+licenca e commit de origem preservados. Falhas no protocolo imprimem PANIC e
+interrompem a inicializacao.
 
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1

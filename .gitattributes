@@ -3,4 +3,8 @@
 *.mk text eol=lf
 *.py text eol=lf
 *.conf text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.asm text eol=lf
+*.ld text eol=lf
 Makefile text eol=lf

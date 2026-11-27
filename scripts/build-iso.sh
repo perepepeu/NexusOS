@@ -7,6 +7,7 @@ staging=$(mktemp -d build/iso-XXXXXX)
 trap 'rm -rf -- "$staging"' EXIT
 mkdir -p "$staging/boot/limine" "$staging/EFI/BOOT"
 cp boot/limine.conf "$staging/boot/limine/"
+cp build/kernel.elf "$staging/boot/kernel.elf"
 cp vendor/limine/limine-bios.sys vendor/limine/limine-bios-cd.bin \
     vendor/limine/limine-uefi-cd.bin "$staging/boot/limine/"
 cp vendor/limine/BOOTX64.EFI "$staging/EFI/BOOT/"
@@ -15,5 +16,5 @@ xorriso -as mkisofs -R -r -J \
     -boot-info-table -hfsplus -apm-block-size 2048 \
     --efi-boot boot/limine/limine-uefi-cd.bin \
     -efi-boot-part --efi-boot-image --protective-msdos-label \
-    "$staging" -o build/nexusos-bootloader.iso
-vendor/limine/limine bios-install build/nexusos-bootloader.iso
+    "$staging" -o build/nexusos.iso
+vendor/limine/limine bios-install build/nexusos.iso

@@ -1,4 +1,4 @@
-"""Confirma que o menu Limine aparece na serial em BIOS e UEFI."""
+"""Confirma a execucao do kernel e o handshake Limine em BIOS e UEFI."""
 from pathlib import Path
 import re
 import subprocess
@@ -11,7 +11,7 @@ if not firmware.is_file():
 for mode in ("bios", "uefi"):
     command = [
         "qemu-system-x86_64", "-machine", "q35", "-accel", "tcg",
-        "-m", "256M", "-cdrom", "build/nexusos-bootloader.iso",
+        "-m", "256M", "-cdrom", "build/nexusos.iso",
         "-boot", "d", "-display", "none", "-serial", "stdio",
         "-monitor", "none", "-no-reboot", "-net", "none",
     ]
@@ -27,7 +27,9 @@ for mode in ("bios", "uefi"):
     log.write_bytes(output)
     # OVMF intercala sequencias de posicionamento entre os caracteres.
     text = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", output)
-    if (b"NexusOS - Limine" not in text or b"ENTER Boot" not in text
+    if (b"NexusOS: kernel inicial pronto. CPU em espera." not in text
+            or b"Bootloader: Limine" not in text or b"Protocolo Limine: OK" not in text
+            or process.returncode != -9
             or b"PANIC" in text.upper()):
-        raise SystemExit(f"FALHA: menu Limine em {mode}; consulte {log}")
-    print(f"OK: menu Limine carregado em {mode}; log: {log}")
+        raise SystemExit(f"FALHA: kernel em {mode}; consulte {log}")
+    print(f"OK: kernel iniciado e protocolo Limine validado em {mode}; log: {log}")
