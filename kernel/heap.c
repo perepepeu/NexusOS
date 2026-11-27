@@ -1,0 +1,101 @@
+#include <heap_internal.h>
+#include <vmm.h>
+#include <pmm.h>
+#include <io.h>
+#include <panic.h>
+#include <log.h>
+#include <stdint.h>
+
+#define HEAP_PAGES 16384u
+static struct heap_state heap;
+static uint64_t base;
+static unsigned char used[HEAP_PAGES];
+/* Injecao local, habilitada somente durante selftest=heap. */
+static int fail_after = -1;
+
+static void release(void *pointer, size_t bytes) {
+    size_t start = ((uintptr_t)pointer - base) / 4096, pages = bytes / 4096;
+    for (size_t i = 0; i < pages; ++i) {
+        uint64_t physical;
+        KASSERT(vmm_unmap_page(base + (start + i) * 4096, &physical) == VMM_OK);
+        KASSERT(pmm_free_page(physical) == PMM_OK);
+        used[start + i] = 0;
+    }
+}
+static void *acquire(size_t bytes) {
+    size_t pages = bytes / 4096, run = 0;
+    if (!pages || pages > HEAP_PAGES) return 0;
+    for (size_t i = 0; i < HEAP_PAGES; ++i) {
+        run = used[i] ? 0 : run + 1;
+        if (run < pages) continue;
+        size_t start = i + 1 - pages, mapped = 0;
+        void *pointer = (void *)(uintptr_t)(base + start * 4096);
+        for (; mapped < pages; ++mapped) {
+            if (fail_after == 0) break;
+            if (fail_after > 0) --fail_after;
+            uint64_t physical;
+            if (vmm_alloc_page(base + (start + mapped) * 4096, VMM_WRITE, &physical) != VMM_OK) break;
+            used[start + mapped] = 1;
+        }
+        if (mapped != pages) { release(pointer, mapped * 4096); return 0; }
+        return pointer;
+    }
+    return 0;
+}
+bool heap_init(void) {
+    struct vmm_stats v;
+    vmm_get_stats(&v);
+    if (heap.stats.ready || !v.ready || v.window_size < (1ull << 30) + HEAP_PAGES * 4096ull) return false;
+    base = v.window_base + (1ull << 30);
+    return heap_core_init(&heap, (struct heap_ops){acquire, release});
+}
+void *kmalloc(size_t size) {
+    uint64_t flags = irq_save(); void *p = heap_core_alloc(&heap, size); irq_restore(flags); return p;
+}
+void *kcalloc(size_t count, size_t size) {
+    uint64_t flags = irq_save(); void *p = heap_core_calloc(&heap, count, size); irq_restore(flags); return p;
+}
+void *krealloc(void *pointer, size_t size) {
+    uint64_t flags = irq_save();
+    KASSERT(!pointer || heap_core_contains(&heap, pointer));
+    void *p = heap_core_realloc(&heap, pointer, size); irq_restore(flags); return p;
+}
+void kfree(void *pointer) {
+    uint64_t flags = irq_save(); KASSERT(heap_core_free(&heap, pointer)); irq_restore(flags);
+}
+void heap_get_stats(struct heap_stats *out) {
+    if (!out) return;
+    uint64_t flags = irq_save(); *out = heap.stats; irq_restore(flags);
+}
+void heap_selftest(void) {
+    struct pmm_stats before, after;
+    struct vmm_stats vb, va;
+    pmm_get_stats(&before); vmm_get_stats(&vb);
+    fail_after = 2;
+    KASSERT(!kmalloc(20000));
+    fail_after = -1;
+    pmm_get_stats(&after); vmm_get_stats(&va);
+    KASSERT(before.free_pages == after.free_pages && vb.mapped_pages == va.mapped_pages && vb.table_pages == va.table_pages);
+    unsigned char *a = kmalloc(31), *b = kcalloc(4097, 3), *c = kmalloc(200000);
+    KASSERT(a && b && c && !((uintptr_t)a % 16) && !((uintptr_t)b % 16));
+    for (size_t i = 0; i < 12291; ++i) KASSERT(b[i] == 0);
+    for (size_t i = 0; i < 31; ++i) a[i] = (unsigned char)i;
+    for (size_t i = 0; i < 200000; ++i) c[i] = (unsigned char)(i * 7);
+    unsigned char *grown = krealloc(a, 32769); KASSERT(grown);
+    for (size_t i = 0; i < 31; ++i) KASSERT(grown[i] == i);
+    KASSERT(!krealloc(grown, SIZE_MAX) && !kmalloc(0) && !kcalloc(SIZE_MAX, 2));
+    for (size_t i = 0; i < 200000; ++i) KASSERT(c[i] == (unsigned char)(i * 7));
+    struct vmm_mapping mapping;
+    KASSERT(vmm_translate((uintptr_t)c, &mapping) && mapping.flags == VMM_WRITE);
+    kfree(b); kfree(c); kfree(grown); kfree(0);
+    /* Fragmentacao e fusao dos blocos dentro de uma arena. */
+    a = kmalloc(1024); b = kmalloc(1024); c = kmalloc(1024);
+    KASSERT(a && b && c); kfree(b); kfree(a);
+    unsigned char *merged = kmalloc(2000); KASSERT(merged == a);
+    kfree(merged); kfree(c);
+    struct heap_stats h; heap_get_stats(&h);
+    pmm_get_stats(&after); vmm_get_stats(&va);
+    KASSERT(!h.allocations && !h.arenas && !h.mapped_bytes && !h.requested_bytes);
+    KASSERT(before.free_pages == after.free_pages && vb.mapped_pages == va.mapped_pages && vb.table_pages == va.table_pages);
+    log_info("test", "Heap: alinhamento, zero, realloc, fusao e devolucao ao PMM/VMM OK.");
+}

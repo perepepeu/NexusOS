@@ -510,7 +510,7 @@ desfaz as tabelas parciais e preserva os mapeamentos anteriores.
 Alteracoes invalidam a TLB com `invlpg`; a remocao de tabelas intermediarias
 tambem recarrega CR3 antes de devolver as paginas ao PMM. As operacoes sao
 serializadas com interrupcoes desabilitadas em uma CPU. Nao ha PCID, LA57,
-SMP/TLB shootdown, ring 3, espacos por processo, heap ou swap. O caminho exige
+SMP/TLB shootdown, ring 3, espacos por processo ou swap. O caminho exige
 suporte a NX e preserva as tabelas existentes sem redesenhar o HHDM.
 
 ```sh
@@ -530,6 +530,47 @@ vetor 14, erro e CR2. O comando `vmm` mostra apenas as tabelas proprias; o PMM
 registra essas paginas como alocacoes normais do seu cliente VMM.
 
 Referencia: [Intel SDM, System Programming Guide](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-system-programming-manual-325384.pdf).
+
+## Heap do kernel
+
+`kernel/include/heap.h` fornece `kmalloc`, `kcalloc`, `krealloc` e `kfree`.
+Os ponteiros tem alinhamento de 16 bytes. `kmalloc(0)`, produtos com overflow
+em `kcalloc` e pedidos que nao cabem retornam NULL. `krealloc(NULL, n)` aloca;
+`krealloc(p, 0)` libera; se o crescimento falhar, o bloco original continua
+valido e preserva os dados. `kfree(NULL)` e aceito. Ponteiros invalidos e
+liberacoes duplicadas detectadas causam assertion/panic; nao ha deteccao geral
+de uso apos liberar nem de escrita fora dos limites.
+
+O heap usa first fit, divisao de blocos e fusao de vizinhos livres. Cada arena
+tem pelo menos 16 KiB, cresce em multiplos de 4 KiB e pode conter varios blocos.
+Uma arena completamente livre e desmapeada e suas paginas de dados retornam ao
+PMM; as tabelas vazias retornam pelo VMM. Falhas durante o mapeamento de uma
+arena desfazem todos os mapeamentos parciais. Encolher um bloco via `krealloc`
+mantem sua capacidade ate a liberacao.
+
+O intervalo `[window_base + 1 GiB, window_base + 1 GiB + 64 MiB)` fica reservado
+ao heap dentro da janela do VMM. Outros clientes do VMM devem evitar esse
+intervalo. O limite de 64 MiB inclui metadados e fragmentacao; a memoria fisica
+e adquirida somente sob demanda. Todas as paginas do heap sao supervisor,
+gravaveis e NX. `heap_init` nao aloca paginas e nao altera o baseline do PMM.
+
+Esta implementacao e para uma CPU, com interrupcoes desabilitadas durante as
+operacoes; nao deve ser chamada de IRQ/NMI e ainda nao oferece locks para SMP,
+slabs, alinhamentos especiais ou tempos de resposta limitados. O heap nao e
+usado pelos caminhos de log/panic, que continuam independentes de alocacao.
+
+```sh
+make run
+# No terminal: heap (contadores), pmm e vmm
+make check-heap
+```
+
+Os testes ASan/UBSan verificam overflow, OOM, alinhamento, preservacao de dados,
+realloc, fusao, ponteiros invalidos e milhares de operacoes intercaladas.
+O QEMU testa BIOS/UEFI com 128, 512 e 5120 MiB, incluindo falha injetada apos
+mapear duas paginas, paginas RW/NX e retorno dos contadores PMM/VMM ao estado
+anterior. O comando `heap` mostra alocacoes, arenas, bytes pedidos e mapeados.
+O codigo de panic 9 identifica falha de inicializacao do heap.
 
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1

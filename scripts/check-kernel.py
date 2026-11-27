@@ -80,7 +80,7 @@ def type_keyboard_test(monitor_path):
     chord("esc")
 
 
-def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=False):
+def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=False, heap=False):
     def chord(*keys):
         items = [(key, True) for key in keys] + [(key, False) for key in reversed(keys)]
         qmp_execute(monitor_path, "input-send-event", {"events": [
@@ -97,6 +97,12 @@ def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=
     def command(value):
         text(value); chord("ret")
 
+    if heap:
+        command("heap")
+        command("vmm")
+        command("pmm")
+        command("echo heap-ok")
+        return
     if vmm:
         command("vmm")
         command("pmm")
@@ -142,7 +148,7 @@ def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=
 
 def boot(mode, scenario, image, firmware, ram_mib=256):
     suffix = mode if scenario == "normal" else f"{scenario}-{mode}"
-    if scenario in ("memory", "pmm", "vmm"): suffix = f"{scenario}-{ram_mib}-{mode}"
+    if scenario in ("memory", "pmm", "vmm", "heap"): suffix = f"{scenario}-{ram_mib}-{mode}"
     log = Path(f"build/boot-{suffix}.log")
     exceptions = {"divide": (0, "Divide error", "0x0"),
                   "opcode": (6, "Invalid opcode", "0x0"),
@@ -161,6 +167,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
               b"\r\nmemory-ok\r\n" if scenario == "memory" else
               b"\r\npmm-ok\r\n" if scenario == "pmm" else
               b"\r\nvmm-ok\r\n" if scenario == "vmm" else
+              b"\r\nheap-ok\r\n" if scenario == "heap" else
               b"Terminal pronto. Digite help.")
     with tempfile.TemporaryDirectory(prefix="nexus-qmp-") as directory:
         monitor_path = str(Path(directory) / "monitor.sock")
@@ -199,6 +206,10 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                     if (scenario == "vmm" and not injected and
                             b"Terminal pronto. Digite help." in log.read_bytes()):
                         type_terminal_test(monitor_path, vmm=True)
+                        injected = True
+                    if (scenario == "heap" and not injected and
+                            b"Terminal pronto. Digite help." in log.read_bytes()):
+                        type_terminal_test(monitor_path, heap=True)
                         injected = True
                     time.sleep(0.1)
                 # O guest deve permanecer ativo, inclusive apos um panic.
@@ -321,6 +332,11 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                      b"Memoria virtual do kernel - 4 niveis", b"Paginas mapeadas: 0",
                      b"Tabelas proprias: 1 paginas", b"Paginas alocadas: 1"]
         if ram_mib > 4096: required += [b"VMM: frame acima de 4 GiB mapeado e acessado OK."]
+    if scenario == "heap":
+        required += [b"Heap: alinhamento, zero, realloc, fusao e devolucao ao PMM/VMM OK.",
+                     b"Heap do kernel - alinhamento 16 bytes", b"Alocacoes ativas: 0",
+                     b"Arenas ativas: 0", b"Bytes solicitados: 0 bytes", b"Bytes mapeados: 0 bytes",
+                     b"Paginas mapeadas: 0", b"Tabelas proprias: 1 paginas", b"Paginas alocadas: 1"]
     if any(message not in text for message in required):
         raise RuntimeError(f"Diagnostico incompleto; consulte {log}")
     print(f"OK: {scenario}/{mode}, serial e framebuffer; log: {log}", flush=True)
@@ -337,11 +353,12 @@ def main():
     group.add_argument("--memory", action="store_true", help="Testa RAM em 128, 512 e 5120 MiB.")
     group.add_argument("--pmm", action="store_true", help="Testa alocacao fisica e paginas acima de 4 GiB.")
     group.add_argument("--vmm", action="store_true", help="Testa mapeamentos virtuais e protecoes na CPU.")
+    group.add_argument("--heap", action="store_true", help="Testa heap e devolucao de paginas em BIOS/UEFI.")
     args = parser.parse_args()
     Path("build").mkdir(exist_ok=True)
     firmware = Path("/usr/share/OVMF/OVMF_CODE_4M.fd")
     if not firmware.is_file(): raise SystemExit("OVMF ausente: instale o pacote ovmf.")
-    scenarios = (("vmm", "vmm-unmapped", "vmm-readonly", "vmm-nx") if args.vmm else
+    scenarios = (("heap",) if args.heap else ("vmm", "vmm-unmapped", "vmm-readonly", "vmm-nx") if args.vmm else
                  ("pmm",) if args.pmm else ("memory",) if args.memory else ("terminal", "terminal-limits") if args.terminal else
                  ("keyboard", "keyboard-echo") if args.keyboard else ("logs", "panic", "assert") if args.errors else
                  ("interrupts", "divide", "opcode", "pagefault", "protection", "doublefault")
@@ -359,7 +376,7 @@ def main():
                 raise RuntimeError(result.stdout.decode(errors="replace"))
         for mode in ("bios", "uefi"):
             previous = 0
-            for size in ((128, 512, 5120) if args.memory or args.pmm or scenario == "vmm" else (256,)):
+            for size in ((128, 512, 5120) if args.memory or args.pmm or scenario in ("vmm", "heap") else (256,)):
                 detected = boot(mode, scenario, image, firmware, size)
                 if args.memory:
                     if detected <= previous: raise RuntimeError("RAM detectada nao cresceu com a configuracao")

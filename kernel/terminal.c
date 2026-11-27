@@ -11,6 +11,7 @@
 #include <memory.h>
 #include <pmm.h>
 #include <vmm.h>
+#include <heap.h>
 
 enum { LINE_SIZE = 128, HISTORY_SIZE = 8 };
 static const char prompt[] = "nexus> ";
@@ -85,6 +86,15 @@ static void virtual_summary(void) {
     put(" paginas\nPaginas: 4 KiB, supervisor, NX e WP ativos.\n");
 }
 
+static void heap_summary(void) {
+    struct heap_stats s; heap_get_stats(&s);
+    put("Heap do kernel - alinhamento 16 bytes\nAlocacoes ativas: "); number(s.allocations, true);
+    put("\nArenas ativas: "); number(s.arenas, true);
+    memory_bytes("\nBytes solicitados: ", s.requested_bytes);
+    memory_bytes("Bytes mapeados: ", s.mapped_bytes);
+    put("Limite virtual: 64 MiB; paginas RW/NX sob demanda.\n");
+}
+
 static void memory_map(void) {
     const struct memory_stats *stats = memory_get_stats();
     if (!stats->valid) { put("Mapa de memoria indisponivel.\n"); return; }
@@ -151,19 +161,20 @@ static void command(char *line, const char *bootloader, const char *boot_version
     bool known = equal(name, "help") || equal(name, "clear") || equal(name, "version")
         || equal(name, "uptime") || equal(name, "sysinfo") || equal(name, "history")
         || equal(name, "reboot") || equal(name, "shutdown")
-        || equal(name, "memory") || equal(name, "memmap") || equal(name, "pmm") || equal(name, "vmm");
+        || equal(name, "memory") || equal(name, "memmap") || equal(name, "pmm") || equal(name, "vmm") || equal(name, "heap");
     if (!known) { put("Comando desconhecido: "); put(name); put(". Digite help.\n"); return; }
     if (*args) { put("Uso: "); put(name); put(" (sem argumentos).\n"); return; }
     if (equal(name, "help")) {
         put("Comandos: help clear echo version uptime sysinfo history\n");
         put("Energia: reboot shutdown\n");
-        put("Memoria: memory memmap pmm vmm\n");
+        put("Memoria: memory memmap pmm vmm heap\n");
         put("Edicao: setas, Home/End, Delete, Backspace, historico Up/Down.\n");
         put("Ctrl+C cancela, Ctrl+U apaga a linha, Ctrl+L limpa a tela.\n");
     } else if (equal(name, "memory")) memory_summary();
     else if (equal(name, "memmap")) memory_map();
     else if (equal(name, "pmm")) page_summary();
     else if (equal(name, "vmm")) virtual_summary();
+    else if (equal(name, "heap")) heap_summary();
     else if (equal(name, "reboot")) {
         if (!power_reboot()) put("Nao foi possivel reiniciar; terminal continua ativo.\n");
     } else if (equal(name, "shutdown")) {

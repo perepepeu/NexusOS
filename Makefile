@@ -5,7 +5,7 @@ QEMU := qemu-system-x86_64
 QEMUFLAGS := -machine q35 -accel tcg -m 256M -boot d -net none
 OVMF ?= /usr/share/OVMF/OVMF_CODE_4M.fd
 DISPLAY_BACKEND ?= gtk
-KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o build/kernel/interrupts.o build/kernel/interrupt_stubs.o build/kernel/keyboard.o build/kernel/terminal.o build/kernel/power.o build/kernel/acpi_s5.o build/kernel/memory.o build/kernel/pmm_core.o build/kernel/pmm.o build/kernel/vmm_core.o build/kernel/vmm.o
+KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o build/kernel/interrupts.o build/kernel/interrupt_stubs.o build/kernel/keyboard.o build/kernel/terminal.o build/kernel/power.o build/kernel/acpi_s5.o build/kernel/memory.o build/kernel/pmm_core.o build/kernel/pmm.o build/kernel/vmm_core.o build/kernel/vmm.o build/kernel/heap_core.o build/kernel/heap.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -104,6 +104,15 @@ check-vmm-unit:
 
 check-vmm: iso check-vmm-unit
 	python3 scripts/check-kernel.py --vmm
+
+.PHONY: check-heap check-heap-unit
+check-heap-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/heap_test.c kernel/heap_core.c -o build/tests/heap
+	build/tests/heap
+
+check-heap: iso check-heap-unit
+	python3 scripts/check-kernel.py --heap
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader

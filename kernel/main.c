@@ -11,6 +11,7 @@
 #include <memory.h>
 #include <pmm.h>
 #include <vmm.h>
+#include <heap.h>
 
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t requests_start[] = LIMINE_REQUESTS_START_MARKER;
@@ -161,6 +162,9 @@ void kmain(void) {
     if (boot_option("selftest=vmm-unmapped")) vmm_selftest(hhdm.response->offset, 1);
     if (boot_option("selftest=vmm-readonly")) vmm_selftest(hhdm.response->offset, 2);
     if (boot_option("selftest=vmm-nx")) vmm_selftest(hhdm.response->offset, 3);
+    if (!heap_init()) PANIC(ERR_HEAP, "Nao foi possivel iniciar o heap do kernel.");
+    log_info("heap", "Heap pronto: alinhamento 16 bytes; limite virtual 64 MiB, sob demanda.");
+    if (boot_option("selftest=heap")) heap_selftest();
 
     if (boot_option("selftest=interrupts")) interrupts_selftest();
     if (boot_option("selftest=doublefault")) interrupts_test_double_fault();

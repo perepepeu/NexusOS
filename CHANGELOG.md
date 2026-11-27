@@ -2,6 +2,11 @@
 
 ## Em desenvolvimento
 
+- Heap do kernel com kmalloc/kcalloc/krealloc/kfree e alinhamento de 16 bytes.
+- Arenas sob demanda em paginas RW/NX, divisao/fusao e devolucao ao PMM/VMM.
+- Rollback de mapeamentos parciais, verificacao de overflow e comando heap.
+- Testes ASan/UBSan, estresse e validacao BIOS/UEFI de 128 MiB a 5 GiB.
+
 - VMM de quatro niveis com PML4 propria, janela privada e mapas do boot preservados.
 - APIs de map/unmap/protect/translate, aliases e integracao com o PMM.
 - NX, CR0.WP, invalidacao de TLB e rollback de tabelas em falta de memoria.
