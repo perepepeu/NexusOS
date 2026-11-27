@@ -12,6 +12,7 @@
 #include <pmm.h>
 #include <vmm.h>
 #include <heap.h>
+#include <process.h>
 
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t requests_start[] = LIMINE_REQUESTS_START_MARKER;
@@ -211,6 +212,10 @@ void kmain(void) {
     }
     if (boot_option("selftest=assert")) KASSERT(false);
 
+    if (!process_init()) PANIC(ERR_PROCESS, "Nao foi possivel iniciar o gerenciador de processos.");
+    log_info("process", "Gerenciador pronto: PID 1, 32 slots; round-robin cooperativo em ring 0.");
+    if (boot_option("selftest=processes")) process_selftest(false);
+    if (boot_option("selftest=process-guard")) process_selftest(true);
     log_info("boot", "NexusOS: kernel inicial pronto. CPU em espera.");
     power_init(rsdp.response && !boot_option("selftest=power-fallback") ? rsdp.response->address : 0,
         hhdm.response->offset, memory_map.response);

@@ -3,6 +3,7 @@
 #include <serial.h>
 #include <console.h>
 #include <heap.h>
+#include <process.h>
 
 static volatile unsigned int panicking;
 
@@ -52,6 +53,7 @@ __attribute__((noreturn)) void kernel_exception(const char *name,
     log_write(LOG_FATAL, "cpu", "RIP=%p RSP=%p", (void *)(uintptr_t)context->rip,
         (void *)(uintptr_t)context->rsp);
     log_write(LOG_FATAL, "cpu", "RFLAGS=%p", (void *)(uintptr_t)context->rflags);
+    log_write(LOG_FATAL, "cpu", "PID=%llu", (unsigned long long)process_current_pid());
     if (context->vector == 14) {
         log_write(LOG_FATAL, "cpu", "CR2=%p", (void *)(uintptr_t)context->cr2);
         uint64_t error = context->error;

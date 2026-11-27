@@ -8,6 +8,7 @@ DISPLAY_BACKEND ?= gtk
 KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o build/kernel/interrupts.o build/kernel/interrupt_stubs.o build/kernel/keyboard.o build/kernel/terminal.o build/kernel/power.o build/kernel/acpi_s5.o build/kernel/memory.o build/kernel/pmm_core.o build/kernel/pmm.o build/kernel/vmm_core.o build/kernel/vmm.o build/kernel/heap_core.o build/kernel/heap.o
 
 KERNEL_OBJECTS += build/kernel/memtest.o
+KERNEL_OBJECTS += build/kernel/process_core.o build/kernel/process.o build/kernel/process_switch.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -37,6 +38,10 @@ build/kernel/entry.o: kernel/entry.asm toolchain.mk Makefile | check-kernel-arch
 	$(AS) $(ASFLAGS) $< -o $@
 
 build/kernel/interrupt_stubs.o: kernel/interrupts.asm toolchain.mk Makefile | check-kernel-arch
+	mkdir -p $(@D)
+	$(AS) $(ASFLAGS) $< -o $@
+
+build/kernel/process_switch.o: kernel/process_switch.asm toolchain.mk Makefile | check-kernel-arch
 	mkdir -p $(@D)
 	$(AS) $(ASFLAGS) $< -o $@
 
@@ -123,6 +128,15 @@ check-access: iso check-heap-unit
 .PHONY: check-memtest
 check-memtest: iso
 	python3 scripts/check-kernel.py --memtest
+
+.PHONY: check-processes check-processes-unit
+check-processes-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/process_test.c kernel/process_core.c -o build/tests/process
+	build/tests/process
+
+check-processes: iso check-processes-unit
+	python3 scripts/check-kernel.py --processes
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader

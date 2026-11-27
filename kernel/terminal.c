@@ -12,6 +12,7 @@
 #include <pmm.h>
 #include <vmm.h>
 #include <heap.h>
+#include <process.h>
 
 enum { LINE_SIZE = 128, HISTORY_SIZE = 8 };
 static const char prompt[] = "nexus> ";
@@ -145,6 +146,34 @@ static unsigned int history_slot(unsigned int position) {
     return (history_head + HISTORY_SIZE - history_count + position) % HISTORY_SIZE;
 }
 
+static void signed_number(int value) {
+    if (value < 0) { put("-"); number((uint64_t)(-(int64_t)value), true); }
+    else number((uint64_t)value, true);
+}
+static bool pid_argument(const char *text, uint64_t *pid) {
+    uint64_t value = 0;
+    if (!*text) return false;
+    while (*text) {
+        if (*text < '0' || *text > '9' || value > (UINT64_MAX - (unsigned int)(*text - '0')) / 10) return false;
+        value = value * 10 + (unsigned int)(*text++ - '0');
+    }
+    *pid = value; return value != 0;
+}
+static void process_summary(void) {
+    struct process_info list[PROCESS_MAX];
+    size_t count = process_snapshot(list, PROCESS_MAX);
+    put("Processos do kernel (cooperativos, ring 0)\nPID PPID ESTADO TICKS SAIDA NOME\n");
+    for (size_t i = 0; i < count; ++i) {
+        number(list[i].pid, true); put(" "); number(list[i].parent, true); put(" ");
+        put(process_state_name(list[i].state)); put(" "); number(list[i].cpu_ticks, true); put(" ");
+        signed_number(list[i].exit_status); put(" "); put(list[i].name); put("\n");
+    }
+}
+static void demo_process(void *argument) {
+    (void)argument;
+    for (unsigned int i = 0; i < 5; ++i) process_sleep(100);
+}
+
 static void save_history(const char *line) {
     copy(history[history_head], line);
     history_head = (history_head + 1) % HISTORY_SIZE;
@@ -161,20 +190,42 @@ static void command(char *line, const char *bootloader, const char *boot_version
     if (*args) *args++ = 0;
     while (*args == ' ' || *args == '\t') ++args;
     if (equal(name, "echo")) { put(args); put("\n"); return; }
+    if (equal(name, "kill") || equal(name, "wait")) {
+        uint64_t pid;
+        if (!pid_argument(args, &pid)) { put("Uso: "); put(name); put(" PID (inteiro positivo).\n"); return; }
+        if (equal(name, "kill")) {
+            if (process_kill(pid, -9)) { put("Processo encerrado: "); number(pid, true); put("\n"); }
+            else put("Processo inexistente, encerrado ou protegido.\n");
+        } else {
+            int status;
+            if (process_wait(pid, &status)) {
+                put("Processo coletado: "); number(pid, true); put(" status="); signed_number(status); put("\n");
+            } else put("Filho inexistente ou ja coletado.\n");
+        }
+        return;
+    }
     bool known = equal(name, "help") || equal(name, "clear") || equal(name, "version")
         || equal(name, "uptime") || equal(name, "sysinfo") || equal(name, "history")
         || equal(name, "reboot") || equal(name, "shutdown")
         || equal(name, "memory") || equal(name, "meminfo") || equal(name, "memtest")
-        || equal(name, "memmap") || equal(name, "pmm") || equal(name, "vmm") || equal(name, "heap");
+        || equal(name, "memmap") || equal(name, "pmm") || equal(name, "vmm") || equal(name, "heap")
+        || equal(name, "ps") || equal(name, "spawn");
     if (!known) { put("Comando desconhecido: "); put(name); put(". Digite help.\n"); return; }
     if (*args) { put("Uso: "); put(name); put(" (sem argumentos).\n"); return; }
     if (equal(name, "help")) {
         put("Comandos: help clear echo version uptime sysinfo history\n");
         put("Energia: reboot shutdown\n");
         put("Memoria: memory meminfo memmap pmm vmm heap memtest\n");
+        put("Processos: ps spawn kill PID wait PID\n");
         put("Edicao: setas, Home/End, Delete, Backspace, historico Up/Down.\n");
         put("Ctrl+C cancela, Ctrl+U apaga a linha, Ctrl+L limpa a tela.\n");
-    } else if (equal(name, "memory") || equal(name, "meminfo")) memory_summary();
+    } else if (equal(name, "ps")) process_summary();
+    else if (equal(name, "spawn")) {
+        uint64_t pid = process_create("demo", demo_process, 0);
+        if (pid) { put("Processo criado: "); number(pid, true); put(" (demo, duracao 5s)\n"); }
+        else put("Falha ao criar processo: memoria ou slots insuficientes.\n");
+    }
+    else if (equal(name, "memory") || equal(name, "meminfo")) memory_summary();
     else if (equal(name, "memtest")) {
         put("Memtest: teste limitado a 64 paginas proprias e blocos temporarios do heap.\n");
         if (memory_test_run()) put("Memtest: PMM, VMM e heap OK; sem vazamentos.\n");

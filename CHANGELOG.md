@@ -2,6 +2,12 @@
 
 ## Em desenvolvimento
 
+- Gerenciador de processos do kernel com PID, pai e estados de execucao.
+- Pilhas RW/NX de 16 KiB com guardas, troca de contexto SysV e round-robin cooperativo.
+- Sono pelo PIT, exit/wait, adocao de orfaos, kill e liberacao de pilhas fora da CPU.
+- Comandos ps, spawn, kill PID e wait PID; terminal cede CPU ao aguardar teclado.
+- Testes de estados/PIDs com ASan/UBSan e contexto/guardas/limpeza em BIOS/UEFI.
+
 ## 0.2 - 2026-11-27
 
 - Total agregado de RAM identificada, com uniao de intervalos e exclusao de MMIO.

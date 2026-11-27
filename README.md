@@ -150,6 +150,7 @@ Uma reentrada no handler usa uma mensagem minima na serial.
 | 8 | Falha ao inicializar a memoria virtual |
 | 9 | Falha ao inicializar o heap |
 | 10 | Ponteiro invalido ou corrupcao detectada no heap |
+| 11 | Falha no gerenciador de processos |
 
 ```sh
 make check-kernel  # Boot normal, BIOS e UEFI
@@ -646,6 +647,69 @@ make check-memory check-pmm check-vmm check-heap check-access check-memtest
 `check-memtest` chama o comando duas vezes em cada boot, confere a rejeicao de
 argumentos, a integridade do heap e a ausencia de alocacoes residuais, em
 BIOS/UEFI com 128, 512 e 5120 MiB.
+
+## Gerenciador de processos do kernel
+
+`kernel/include/process.h` oferece criacao, yield, sono em ticks do PIT,
+encerramento, espera por filho e consulta de processos. O PID 1 representa o
+kernel/terminal na pilha inicial. Existem 32 slots no total; novos PIDs sao
+monotonicos e nao sao reutilizados quando um slot e liberado.
+
+Cada processo criado recebe uma pilha RW/NX de 16 KiB, com uma pagina ausente
+antes e outra depois. As pilhas ocupam o intervalo reservado
+`[window_base + 2 GiB, window_base + 2 GiB + 32 * 24 KiB)`, separado do heap e
+do memtest. Falhas parciais de alocacao desfazem os mapas e devolvem os frames.
+A troca em Assembly preserva os registradores callee-saved e o RSP conforme
+a ABI SysV; o contexto de cada processo restaura seu estado de interrupcoes.
+O codigo C do kernel usa somente registradores gerais: nao ha contexto FPU/SIMD.
+
+O escalonamento e cooperativo em round-robin. Um processo deve chamar
+`process_yield()`, `process_sleep()` ou `process_wait()` para ceder a CPU.
+O PIT contabiliza ticks e acorda processos dormindo; a IRQ nao troca contextos,
+aloca memoria nem libera pilhas. Quando nao ha processo pronto, o escalonador
+aguarda com STI/HLT. O terminal cede a CPU ao consultar o teclado; por isso os
+processos de demonstracao continuam executando sem entrada do usuario.
+Um processo que nunca cede a CPU pode bloquear o restante do sistema.
+
+Estados: READY, RUNNING, SLEEPING, WAITING e ZOMBIE. Ao retornar da funcao de
+entrada, o processo termina com status 0; `process_exit(status)` informa outro
+resultado. A pilha e liberada somente depois de sair de seu contexto. O registro
+ZOMBIE e o status permanecem ate o pai chamar `process_wait(pid, &status)`.
+Filhos orfaos sao adotados pelo PID 1. Sem wait, zombies ocupam slots, mesmo
+quando suas pilhas ja foram devolvidas. O PID 1 e protegido contra kill.
+
+```sh
+make run
+# No terminal:
+ps
+spawn
+# Use o PID mostrado (demo dorme por aproximadamente 5 segundos):
+wait 2
+# Ou crie outro e use kill PID, depois wait PID.
+make check-processes
+```
+
+`ps` mostra PID, pai, estado, ticks atribuidos enquanto RUNNING, status e nome.
+Esses ticks incluem o tempo em que o terminal aguarda IRQs e nao sao uma medicao
+precisa de utilizacao de CPU. `spawn` inicia uma demo silenciosa; `kill PID`
+encerra um processo fora da CPU com status -9; `wait PID` espera/coleta um filho.
+Argumentos invalidos, PID inexistente, self-kill e espera por nao-filho sao
+rejeitados. Os ponteiros de funcao/argumento devem permanecer validos; argumentos
+e outros recursos criados pelo processo nao sao liberados automaticamente.
+
+Esta etapa executa callbacks confiaveis em ring 0, na mesma CR3 e memoria do
+kernel, em uma CPU. Nao implementa executaveis ELF, fork/exec, syscalls, ring 3,
+isolamento por processo, preempcao, sinais ou SMP. Uma excecao em um processo
+do kernel para o sistema inteiro; o panic registra seu PID. A API nao deve ser
+chamada em IRQ/NMI ou com interrupcoes desabilitadas.
+
+Os testes ASan/UBSan verificam estados, round-robin, sono com wrap do contador,
+wait, adocao de orfaos, esgotamento dos slots e milhares de ciclos de PIDs.
+No QEMU BIOS/UEFI com 128, 512 e 5120 MiB, os testes verificam trocas reais de
+pilha, registradores, alternancia, sono, exit/wait, kill, retorno ao terminal,
+rollback em OOM e contadores de memoria restaurados. Uma VM separada provoca
+page fault na guarda da pilha e confere CR2 e PID. Falha de inicializacao do
+gerenciador usa panic 11.
 
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1

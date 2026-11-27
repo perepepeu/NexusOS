@@ -3,6 +3,7 @@
 #include <io.h>
 #include <log.h>
 #include <panic.h>
+#include <process.h>
 
 enum { QUEUE_SIZE = 64, WAIT_LIMIT = 1000000 };
 static struct key_event queue[QUEUE_SIZE];
@@ -163,6 +164,7 @@ bool keyboard_read(struct key_event *event) {
 void keyboard_wait(struct key_event *event) {
     KASSERT(event);
     for (;;) {
+        process_yield();
         uint64_t flags = irq_save();
         KASSERT(flags & (1u << 9));
         if (keyboard_read(event)) { irq_restore(flags); return; }

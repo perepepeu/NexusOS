@@ -13,6 +13,7 @@ enum kernel_error {
     ERR_VIRTUAL_MEMORY = 8,
     ERR_HEAP = 9,
     ERR_MEMORY_ACCESS = 10,
+    ERR_PROCESS = 11,
 };
 
 struct panic_context {

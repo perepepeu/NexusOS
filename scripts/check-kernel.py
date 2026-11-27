@@ -80,7 +80,7 @@ def type_keyboard_test(monitor_path):
     chord("esc")
 
 
-def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=False, heap=False, memtest=False):
+def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=False, heap=False, memtest=False, processes=False):
     def chord(*keys):
         items = [(key, True) for key in keys] + [(key, False) for key in reversed(keys)]
         qmp_execute(monitor_path, "input-send-event", {"events": [
@@ -97,6 +97,26 @@ def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=
     def command(value):
         text(value); chord("ret")
 
+    if processes:
+        command("ps")
+        command("spawn extra")
+        command("spawn")
+        command("wait 5")
+        time.sleep(5.3)  # Aguarda o filho sem inundar a fila PS/2 enquanto o terminal bloqueia.
+        command("spawn")
+        command("kill 6")
+        command("wait 6")
+        command("wait 6")
+        command("kill 1")
+        command("kill 99999")
+        command("wait 1")
+        command("kill 18446744073709551616")
+        command("ps")
+        command("pmm")
+        command("vmm")
+        command("heap")
+        command("echo processes-ok")
+        return
     if memtest:
         command("meminfo")
         command("memtest extra")
@@ -158,7 +178,7 @@ def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=
 
 def boot(mode, scenario, image, firmware, ram_mib=256):
     suffix = mode if scenario == "normal" else f"{scenario}-{mode}"
-    if scenario in ("memory", "pmm", "vmm", "heap", "memtest"): suffix = f"{scenario}-{ram_mib}-{mode}"
+    if scenario in ("memory", "pmm", "vmm", "heap", "memtest", "processes"): suffix = f"{scenario}-{ram_mib}-{mode}"
     log = Path(f"build/boot-{suffix}.log")
     exceptions = {"divide": (0, "Divide error", "0x0"),
                   "opcode": (6, "Invalid opcode", "0x0"),
@@ -172,7 +192,8 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                   "access-guard-low": (14, "Page fault", "0x2"),
                   "access-guard-high": (14, "Page fault", "0x2"),
                   "access-unmapped": (14, "Page fault", "0x0"),
-                  "access-nx": (14, "Page fault", "0x11")}
+                  "access-nx": (14, "Page fault", "0x11"),
+                  "process-guard": (14, "Page fault", "0x2")}
     heap_errors = {"access-overflow", "access-underflow", "access-freed", "access-doublefree", "access-badfree"}
     fatal = scenario in ("panic", "assert") or scenario in exceptions or scenario in heap_errors
     marker = (b"Sistema interrompido. Reinicie a maquina." if fatal else
@@ -185,6 +206,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
               b"\r\nvmm-ok\r\n" if scenario == "vmm" else
               b"\r\nheap-ok\r\n" if scenario == "heap" else
               b"\r\nmemtest-ok\r\n" if scenario == "memtest" else
+              b"\r\nprocesses-ok\r\n" if scenario == "processes" else
               b"Terminal pronto. Digite help.")
     with tempfile.TemporaryDirectory(prefix="nexus-qmp-") as directory:
         monitor_path = str(Path(directory) / "monitor.sock")
@@ -199,7 +221,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
         with log.open("wb") as output, subprocess.Popen(
                 command, stdout=output, stderr=subprocess.STDOUT) as process:
             try:
-                deadline = time.monotonic() + (40 if scenario == "pmm" else 20)
+                deadline = time.monotonic() + (50 if scenario == "processes" else 40 if scenario == "pmm" else 20)
                 injected = False
                 while marker not in log.read_bytes():
                     if process.poll() is not None or time.monotonic() >= deadline:
@@ -231,6 +253,10 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                     if (scenario == "memtest" and not injected and
                             b"Terminal pronto. Digite help." in log.read_bytes()):
                         type_terminal_test(monitor_path, memtest=True)
+                        injected = True
+                    if (scenario == "processes" and not injected and
+                            b"Terminal pronto. Digite help." in log.read_bytes()):
+                        type_terminal_test(monitor_path, processes=True)
                         injected = True
                     time.sleep(0.1)
                 # O guest deve permanecer ativo, inclusive apos um panic.
@@ -288,6 +314,10 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                           "pagina livre do heap" if scenario == "access-unmapped" else
                           "pagina de dados do heap" if scenario == "access-nx" else "pagina de guarda do heap")
                 required += [f"Regiao: {region}".encode()]
+            if scenario == "process-guard":
+                target = re.search(rb"Pilha de processo: guarda em (0x[0-9a-f]+) PID=2", text)
+                if not target: raise RuntimeError(f"Guarda de pilha ausente; consulte {log}")
+                required += [b"CR2=" + target[1], b"[FATAL] [cpu] PID=2"]
         if scenario in heap_errors:
             reason = ("escrita em bloco livre (use-after-free)" if scenario == "access-freed" else
                       "ponteiro invalido ou double free" if scenario in ("access-doublefree", "access-badfree") else
@@ -393,6 +423,14 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                      b"Alocacoes ativas: 0", b"Arenas ativas: 0", b"Bytes mapeados: 0 bytes"]
         if text.count(b"Memtest: PMM, VMM e heap OK; sem vazamentos.") != 2 or b"Memtest: FALHOU" in text:
             raise RuntimeError(f"Memtest falhou/repeticao deixou vazamentos; consulte {log}")
+    if scenario == "processes":
+        required += [b"Processos: contexto, round-robin, sono, wait, kill, guardas e limpeza OK.",
+                     b"Processos do kernel (cooperativos, ring 0)", b"PID PPID ESTADO TICKS SAIDA NOME",
+                     b"Uso: spawn (sem argumentos).", b"Processo criado: 5", b"Processo criado: 6",
+                     b"Processo coletado: 5 status=0", b"Processo encerrado: 6", b"Processo coletado: 6 status=-9",
+                     b"Filho inexistente ou ja coletado.", b"Processo inexistente, encerrado ou protegido.",
+                     b"Uso: kill PID (inteiro positivo).", b"Paginas alocadas: 1", b"Paginas mapeadas: 0",
+                     b"Tabelas proprias: 1 paginas", b"Alocacoes ativas: 0"]
     if any(message not in text for message in required):
         raise RuntimeError(f"Diagnostico incompleto; consulte {log}")
     print(f"OK: {scenario}/{mode}, serial e framebuffer; log: {log}", flush=True)
@@ -412,11 +450,12 @@ def main():
     group.add_argument("--heap", action="store_true", help="Testa heap e devolucao de paginas em BIOS/UEFI.")
     group.add_argument("--access", action="store_true", help="Testa acessos invalidos e diagnosticos do heap/CPU.")
     group.add_argument("--memtest", action="store_true", help="Testa comandos meminfo e memtest repetidos.")
+    group.add_argument("--processes", action="store_true", help="Testa processos, contexto, terminal e guarda de pilha.")
     args = parser.parse_args()
     Path("build").mkdir(exist_ok=True)
     firmware = Path("/usr/share/OVMF/OVMF_CODE_4M.fd")
     if not firmware.is_file(): raise SystemExit("OVMF ausente: instale o pacote ovmf.")
-    scenarios = (("memtest",) if args.memtest else ("access-null", "access-guard-low", "access-guard-high", "access-unmapped", "access-overflow",
+    scenarios = (("processes", "process-guard") if args.processes else ("memtest",) if args.memtest else ("access-null", "access-guard-low", "access-guard-high", "access-unmapped", "access-overflow",
                   "access-underflow", "access-freed", "access-doublefree", "access-badfree", "access-nx") if args.access else
                  ("heap",) if args.heap else ("vmm", "vmm-unmapped", "vmm-readonly", "vmm-nx") if args.vmm else
                  ("pmm",) if args.pmm else ("memory",) if args.memory else ("terminal", "terminal-limits") if args.terminal else
@@ -436,7 +475,7 @@ def main():
                 raise RuntimeError(result.stdout.decode(errors="replace"))
         for mode in ("bios", "uefi"):
             previous = 0
-            for size in ((128, 512, 5120) if args.memory or args.pmm or scenario in ("vmm", "heap", "memtest") else (256,)):
+            for size in ((128, 512, 5120) if args.memory or args.pmm or scenario in ("vmm", "heap", "memtest", "processes") else (256,)):
                 detected = boot(mode, scenario, image, firmware, size)
                 if args.memory:
                     if detected <= previous: raise RuntimeError("RAM detectada nao cresceu com a configuracao")
