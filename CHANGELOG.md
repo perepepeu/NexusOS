@@ -2,6 +2,11 @@
 
 ## Em desenvolvimento
 
+- Alocador fisico de paginas de 4 KiB com bitmap compacto e metadados protegidos.
+- Alocacao individual, pagina zerada e blocos contiguos com alinhamento.
+- Liberacao validada, contadores atuais e comando pmm no terminal.
+- Testes de esgotamento, reutilizacao, reservas e escrita em RAM acima de 4 GiB.
+
 - Deteccao e copia do mapa fisico Limine, com validacao e contagem em 64 bits.
 - Comandos memory/memmap e resumo da RAM utilizavel em sysinfo e no boot.
 - Contagem de paginas completas, maior bloco utilizavel e categorias reservadas.

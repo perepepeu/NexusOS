@@ -9,6 +9,7 @@
 #include <version.h>
 #include <power.h>
 #include <memory.h>
+#include <pmm.h>
 
 enum { LINE_SIZE = 128, HISTORY_SIZE = 8 };
 static const char prompt[] = "nexus> ";
@@ -41,7 +42,7 @@ static void memory_summary(void) {
     const struct memory_stats *stats = memory_get_stats();
     if (!stats->valid) { put("Mapa de memoria indisponivel.\n"); return; }
     put("Memoria fisica - mapa Limine\nRegioes: "); number(stats->region_count, true); put("\n");
-    memory_bytes("Utilizavel agora: ", stats->bytes[MEMORY_USABLE]);
+    memory_bytes("Utilizavel no boot: ", stats->bytes[MEMORY_USABLE]);
     put("Paginas utilizaveis de 4 KiB: "); number(stats->usable_pages, true); put("\n");
     memory_bytes("Bootloader (reclamavel depois): ", stats->bytes[MEMORY_BOOTLOADER]);
     memory_bytes("ACPI (reclamavel depois): ", stats->bytes[MEMORY_ACPI]);
@@ -53,7 +54,23 @@ static void memory_summary(void) {
     memory_bytes("Tipo desconhecido (reservado): ", stats->bytes[MEMORY_UNKNOWN]);
     put("Maior bloco paginado: "); hex(stats->largest_base); put(" tamanho=");
     number(stats->largest_bytes, true); put(" bytes\n");
-    put("Sem alocador: memoria reclamavel ainda nao foi liberada.\n");
+    struct pmm_stats allocator;
+    pmm_get_stats(&allocator);
+    memory_bytes("Livre no alocador: ", allocator.free_pages * MEMORY_PAGE_SIZE);
+    put("Bootloader e ACPI ainda nao foram reclamados.\n");
+}
+
+static void page_summary(void) {
+    struct pmm_stats s;
+    pmm_get_stats(&s);
+    if (!s.ready) { put("Alocador de paginas indisponivel.\n"); return; }
+    put("Alocador fisico de paginas de 4 KiB\nPaginas totais: "); number(s.total_pages, true);
+    put("\nPaginas livres: "); number(s.free_pages, true);
+    put("\nPaginas alocadas: "); number(s.allocated_pages, true);
+    put("\nPaginas de metadados: "); number(s.metadata_pages, true);
+    put("\nBitmap fisico: "); hex(s.metadata_address);
+    put("\nBytes do bitmap: "); number(s.bitmap_bytes, true);
+    put("\nFaixas utilizaveis: "); number(s.range_count, true); put("\n");
 }
 
 static void memory_map(void) {
@@ -122,17 +139,18 @@ static void command(char *line, const char *bootloader, const char *boot_version
     bool known = equal(name, "help") || equal(name, "clear") || equal(name, "version")
         || equal(name, "uptime") || equal(name, "sysinfo") || equal(name, "history")
         || equal(name, "reboot") || equal(name, "shutdown")
-        || equal(name, "memory") || equal(name, "memmap");
+        || equal(name, "memory") || equal(name, "memmap") || equal(name, "pmm");
     if (!known) { put("Comando desconhecido: "); put(name); put(". Digite help.\n"); return; }
     if (*args) { put("Uso: "); put(name); put(" (sem argumentos).\n"); return; }
     if (equal(name, "help")) {
         put("Comandos: help clear echo version uptime sysinfo history\n");
         put("Energia: reboot shutdown\n");
-        put("Memoria: memory memmap\n");
+        put("Memoria: memory memmap pmm\n");
         put("Edicao: setas, Home/End, Delete, Backspace, historico Up/Down.\n");
         put("Ctrl+C cancela, Ctrl+U apaga a linha, Ctrl+L limpa a tela.\n");
     } else if (equal(name, "memory")) memory_summary();
     else if (equal(name, "memmap")) memory_map();
+    else if (equal(name, "pmm")) page_summary();
     else if (equal(name, "reboot")) {
         if (!power_reboot()) put("Nao foi possivel reiniciar; terminal continua ativo.\n");
     } else if (equal(name, "shutdown")) {
@@ -151,6 +169,9 @@ static void command(char *line, const char *bootloader, const char *boot_version
         number(keyboard_dropped(), true); put("\n");
         put("Memoria utilizavel: "); number(memory_get_stats()->bytes[MEMORY_USABLE] / (1024 * 1024), true);
         put(" MiB\n");
+        struct pmm_stats pages;
+        pmm_get_stats(&pages);
+        put("Paginas fisicas livres: "); number(pages.free_pages, true); put("\n");
     } else if (equal(name, "history")) {
         for (unsigned int i = 0; i < history_count; ++i) {
             number(i + 1, true); put(" "); put(history[history_slot(i)]); put("\n");

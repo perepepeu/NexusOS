@@ -9,6 +9,7 @@ enum kernel_error {
     ERR_ASSERTION = 4,
     ERR_CPU_EXCEPTION = 5,
     ERR_MEMORY_MAP = 6,
+    ERR_PAGE_ALLOCATOR = 7,
 };
 
 struct panic_context {

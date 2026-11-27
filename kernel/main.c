@@ -9,6 +9,7 @@
 #include <terminal.h>
 #include <power.h>
 #include <memory.h>
+#include <pmm.h>
 
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t requests_start[] = LIMINE_REQUESTS_START_MARKER;
@@ -142,6 +143,13 @@ void kmain(void) {
     const struct memory_stats *ram = memory_get_stats();
     log_info("memory", "Mapa fisico: %u regioes. Utilizavel: %llu bytes; paginas 4KiB: %llu.",
         ram->region_count, (unsigned long long)ram->bytes[MEMORY_USABLE], (unsigned long long)ram->usable_pages);
+    if (pmm_init(hhdm.response->offset) != PMM_OK)
+        PANIC(ERR_PAGE_ALLOCATOR, "Nao foi possivel iniciar o alocador de paginas.");
+    struct pmm_stats pages;
+    pmm_get_stats(&pages);
+    log_info("pmm", "Alocador pronto: %llu paginas livres; metadados=%llu paginas.",
+        (unsigned long long)pages.free_pages, (unsigned long long)pages.metadata_pages);
+    if (boot_option("selftest=pmm")) pmm_selftest(hhdm.response->offset);
 
     if (boot_option("selftest=interrupts")) interrupts_selftest();
     if (boot_option("selftest=doublefault")) interrupts_test_double_fault();

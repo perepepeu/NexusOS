@@ -146,6 +146,7 @@ Uma reentrada no handler usa uma mensagem minima na serial.
 | 4 | Assert do kernel falhou |
 | 5 | Excecao da CPU ou interrupcao inesperada |
 | 6 | Mapa de memoria fisica ausente ou invalido |
+| 7 | Falha ao inicializar o alocador de paginas fisicas |
 
 ```sh
 make check-kernel  # Boot normal, BIOS e UEFI
@@ -279,6 +280,7 @@ o texto digitado, sem interpretacao de aspas, pipes ou redirecionamentos.
 | `shutdown` | Desliga a maquina via ACPI S5 |
 | `memory` | Resume a memoria utilizavel e as categorias do mapa fisico |
 | `memmap` | Lista enderecos fisicos, tamanhos e tipos de todas as regioes |
+| `pmm` | Mostra paginas livres, alocadas e reservadas para o bitmap |
 
 O editor aceita 127 caracteres, insercao na posicao do cursor, Left/Right,
 Home/End, Delete, Backspace e Tab (quatro espacos). Up/Down navegam pelo
@@ -358,7 +360,7 @@ desconhecidos. `sysinfo` tambem informa a quantidade utilizavel em MiB.
 `memmap` mostra os descritores originais copiados, com enderecos e contagens
 de 64 bits. A deteccao e registrada no log de boot.
 
-Somente `USABLE` e contado como disponivel agora. Regioes do bootloader e
+Somente `USABLE` alimenta o alocador de paginas. Regioes do bootloader e
 ACPI permanecem ocupadas: suas estruturas ainda sao usadas pelo kernel.
 Tipos desconhecidos e memoria defeituosa nunca entram na contagem utilizavel.
 A contagem de paginas arredonda o inicio para cima e o fim para baixo e exclui
@@ -370,7 +372,8 @@ de cada categoria usa a uniao dos intervalos, evitando duplicatas dentro dela.
 Categorias diferentes ainda podem se sobrepor; seus valores nao devem ser
 somados para inferir a RAM instalada. Reservas e MMIO podem estar fora da RAM,
 e nem o ultimo endereco do mapa nem a soma de todos os descritores representam
-capacidade de RAM. Os valores sao um retrato do boot, sem alocador de paginas.
+capacidade de RAM. Esses valores descrevem o mapa original do boot. A linha
+`Livre no alocador` e o comando `pmm` consultam o estado atual do alocador.
 
 ```sh
 make run
@@ -387,6 +390,66 @@ entradas nulas/vazias, ordem e overflow. Logs ficam em
 `build/boot-memory-{MiB}-{bios|uefi}.log`, com capturas de mesmos sufixos.
 
 Referencia: [Limine Memory Map Feature](https://github.com/Limine-Bootloader/limine-protocol/blob/877c2d4c50e170575f8b8e7fbf7b8fa89b1dc157/PROTOCOL.md#memory-map-feature).
+
+## Alocador de paginas fisicas (PMM)
+
+O PMM inicializa depois da deteccao de memoria e gerencia paginas de 4096 bytes.
+Somente paginas completas de regioes `USABLE` entram no pool; a pagina zero,
+kernel/modulos, framebuffer, ACPI, bootloader, reservas e tipos desconhecidos
+permanecem fora dele. Faixas utilizaveis adjacentes sao unidas.
+
+O bitmap usa um bit por pagina utilizavel, sem representar buracos de MMIO.
+Seu tamanho e calculado em 64 bits e suas paginas sao retiradas de uma faixa
+utilizavel contigua, acessada pelo HHDM do Limine. Essas paginas sao marcadas
+como metadados permanentes e nao podem ser alocadas ou liberadas pelo cliente.
+Nao ha limite fixo de RAM em GiB; os limites sao o mapa de 1024 descritores,
+o espaco de enderecos e o HHDM fornecido pelo bootloader.
+
+```c
+#include <pmm.h>
+
+uint64_t page = pmm_alloc_page();             // Uma pagina, sem zerar.
+uint64_t clean = pmm_alloc_zeroed_page();     // Uma pagina de 4096 bytes zerados.
+uint64_t block = pmm_alloc_pages(3, 8);       // Tres paginas; inicio alinhado a 8 paginas.
+if (page) pmm_free_page(page);
+if (clean) pmm_free_page(clean);
+if (block) pmm_free_pages(block, 3);
+```
+
+As alocacoes retornam **enderecos fisicos**, com zero indicando falha ou falta
+de memoria. Alinhamento e medido em paginas e deve ser uma potencia de dois.
+Blocos contiguos nunca atravessam lacunas fisicas. A API nao cria novos
+mapeamentos virtuais; a versao zerada utiliza o HHDM existente. As demais
+alocacoes preservam o conteudo anterior da RAM.
+
+Liberacoes retornam `PMM_OK` ou um erro para endereco desalinhado, fora do pool,
+pagina ja livre ou tentativa de liberar metadados. A liberacao de um bloco e
+validada por inteiro antes de alterar bits, sem liberacao parcial em caso de
+erro. O cliente deve liberar somente paginas que possui; o PMM nao guarda
+identidades de donos nem fronteiras de cada chamada de alocacao.
+
+As operacoes protegem o bitmap e os contadores desabilitando interrupcoes e
+restaurando o estado anterior, no contexto atual de uma CPU. Nao ha suporte
+a alocacoes concorrentes em SMP ou NMI. Reinicializar um PMM ativo e rejeitado.
+O alocador nao recupera automaticamente memoria do bootloader ou ACPI e nao
+implementa heap/malloc, swap, paginacao sob demanda ou um gerenciador virtual.
+
+`pmm` apresenta paginas totais, livres, alocadas, metadados, endereco e bytes
+do bitmap. A identidade `total = livres + alocadas + metadados` e mantida;
+as paginas de metadados nao sao contadas como alocacoes do cliente. `memory`
+preserva o retrato do boot e tambem mostra os bytes livres atuais do PMM.
+
+```sh
+make check-pmm
+```
+
+O nucleo independente de hardware e testado com ASan/UBSan para esgotamento,
+reutilizacao, unicidade, alinhamento, fragmentacao, blocos contiguos, liberacao
+dupla/invalida, metadados e faixas acima de 4 GiB. No QEMU, `selftest=pmm`
+verifica a pagina zerada, escreve e le paginas alocadas, testa protecoes e
+restaura os contadores depois de liberar tudo. Com 5 GiB, tambem aloca um
+bloco acima de 4 GiB e verifica escrita/leitura nele. Sao usados 128, 512 e
+5120 MiB em BIOS e UEFI. Logs: `build/boot-pmm-{MiB}-{bios|uefi}.log`.
 
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1
