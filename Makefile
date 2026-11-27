@@ -10,6 +10,7 @@ KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.
 KERNEL_OBJECTS += build/kernel/memtest.o
 KERNEL_OBJECTS += build/kernel/process_core.o build/kernel/process.o build/kernel/process_switch.o
 KERNEL_OBJECTS += build/kernel/runtime.o
+KERNEL_OBJECTS += build/kernel/resource_core.o build/kernel/process_resources.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -136,8 +137,14 @@ check-processes-unit:
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/process_test.c kernel/process_core.c -o build/tests/process
 	build/tests/process
 
-check-processes: iso check-processes-unit
+check-processes: iso check-processes-unit check-resources-unit
 	python3 scripts/check-kernel.py --processes
+
+.PHONY: check-resources-unit
+check-resources-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/resource_test.c kernel/resource_core.c -o build/tests/resources
+	build/tests/resources
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader

@@ -61,6 +61,11 @@ static struct block *find(struct heap_state *s, void *p) {
             if ((void *)(raw(b) + REDZONE) == p && b->requested) return b;
     return 0;
 }
+bool heap_core_validate_pointer(struct heap_state *s, void *pointer) {
+    if (!s || !s->stats.ready || heap_core_check(s) != HEAP_OK) return false;
+    if (!find(s, pointer)) { bad(s, HEAP_INVALID_POINTER, (uintptr_t)pointer); return false; }
+    return true;
+}
 bool heap_core_init(struct heap_state *s, struct heap_ops ops) {
     if (!s || s->stats.ready || !ops.acquire || !ops.release) return false;
     *s = (struct heap_state){.ops = ops, .stats.ready = true};

@@ -2,6 +2,9 @@
 
 ## Em desenvolvimento
 
+- Recursos associados ao PID: heap automatico, blocos fisicos, mapas virtuais e destrutores.
+- Limpeza de grupos apos sair da CPU, transferencia de posse e rollback quando o registro enche.
+
 - PCBs separados de TCBs, PIDs/TIDs independentes e multiplas threads por processo.
 - Criacao/join/exit de threads, deteccao de ciclos de join e encerramento de grupos.
 - Comando threads; ps agrega estado e contadores do processo.

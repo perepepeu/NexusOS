@@ -435,6 +435,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
     if scenario == "processes":
         required += [b"Processos: contexto, round-robin, sono, wait, kill, guardas e limpeza OK.",
                      b"Threads: TIDs distintos, PID compartilhado, join e ultima thread OK.",
+                     b"Recursos: heap automatico, paginas, mapas, destrutores, transferencia, kill e OOM OK.",
                      b"Processos do kernel (cooperativos, ring 0)", b"PID PPID ESTADO THREADS TICKS SAIDA NOME",
                      b"Threads do kernel", b"TID PID ESTADO TICKS SAIDA NOME", b"Uso: spawn (sem argumentos).",
                      b"Filho inexistente ou ja coletado.", b"Processo inexistente, encerrado ou protegido.",

@@ -5,6 +5,7 @@
 #include <panic.h>
 #include <log.h>
 #include <stdint.h>
+#include <process_resources.h>
 
 #define HEAP_PAGES 16384u
 static struct heap_state heap;
@@ -70,17 +71,27 @@ bool heap_init(void) {
     return heap_core_init(&heap, (struct heap_ops){acquire, release});
 }
 void *kmalloc(size_t size) {
-    uint64_t flags = irq_save(); void *p = heap_core_alloc(&heap, size); verify_result(); irq_restore(flags); return p;
+    uint64_t flags = irq_save(); int token = process_heap_prepare(0);
+    void *p = token == -2 ? 0 : heap_core_alloc(&heap, size); verify_result();
+    process_heap_finish(token, 0, p, size); irq_restore(flags); return p;
 }
 void *kcalloc(size_t count, size_t size) {
-    uint64_t flags = irq_save(); void *p = heap_core_calloc(&heap, count, size); verify_result(); irq_restore(flags); return p;
+    uint64_t flags = irq_save(); int token = process_heap_prepare(0);
+    void *p = token == -2 ? 0 : heap_core_calloc(&heap, count, size); verify_result();
+    process_heap_finish(token, 0, p, p ? count * size : 0); irq_restore(flags); return p;
 }
 void *krealloc(void *pointer, size_t size) {
     uint64_t flags = irq_save();
-    void *p = heap_core_realloc(&heap, pointer, size); verify_result(); irq_restore(flags); return p;
+    if (pointer && !size) {
+        heap_core_realloc(&heap, pointer, size); verify_result(); process_heap_forget(pointer); irq_restore(flags); return 0;
+    }
+    int token = process_heap_prepare(pointer);
+    if (token == -2 && pointer) { heap_core_validate_pointer(&heap, pointer); verify_result(); }
+    void *p = token == -2 ? 0 : heap_core_realloc(&heap, pointer, size); verify_result();
+    process_heap_finish(token, pointer, p, size); irq_restore(flags); return p;
 }
 void kfree(void *pointer) {
-    uint64_t flags = irq_save(); heap_core_free(&heap, pointer); verify_result(); irq_restore(flags);
+    uint64_t flags = irq_save(); heap_core_free(&heap, pointer); verify_result(); process_heap_forget(pointer); irq_restore(flags);
 }
 void heap_access_selftest(unsigned int scenario) {
     if (scenario == 1) {

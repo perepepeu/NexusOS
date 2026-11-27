@@ -35,6 +35,8 @@ int main(void) {
     unsigned char *a = heap_core_alloc(&s, 1000), *b = heap_core_alloc(&s, 1000), *c = heap_core_alloc(&s, 1000);
     assert(a && b && c && (uintptr_t)a % 16 == 0);
     memset(a, 0x57, 1000);
+    assert(heap_core_validate_pointer(&s, a));
+    assert(!heap_core_validate_pointer(&s, a + 1));
     assert(heap_core_check(&s) == HEAP_OK);
     a[1000] = 0;
     assert(heap_core_check(&s) == HEAP_CORRUPTION && s.error_address == (uintptr_t)(a + 1000));

@@ -703,8 +703,31 @@ Esses ticks incluem o tempo em que o terminal aguarda IRQs e nao sao uma medicao
 precisa de utilizacao de CPU. `spawn` inicia uma demo silenciosa; `kill PID`
 encerra um processo fora da CPU com status -9; `wait PID` espera/coleta um filho.
 Argumentos invalidos, PID inexistente, self-kill e espera por nao-filho sao
-rejeitados. Os ponteiros de funcao/argumento devem permanecer validos; argumentos
-e outros recursos criados pelo processo nao sao liberados automaticamente.
+rejeitados. Os ponteiros de funcao/argumento devem permanecer validos.
+
+Alocacoes kmalloc/kcalloc/krealloc feitas por PIDs comuns passam a pertencer
+automaticamente ao PCB. As threads compartilham esses recursos; terminar uma
+thread nao libera o heap do processo enquanto outra estiver viva. Ao terminar
+o grupo inteiro, a limpeza ocorre fora de suas pilhas, antes da coleta por wait.
+`kfree` remove o registro; `krealloc` preserva a posse em sucesso e falha.
+O PID 1 mantem as alocacoes gerais do kernel sem coleta automatica.
+
+`kernel/include/process_resources.h` oferece `process_alloc_pages()` para
+blocos fisicos e `process_map_pages()` para paginas virtuais com posse pelo PID.
+Os mapas usam uma janela reservada de 32 MiB a partir de `window_base + 3 GiB`.
+`process_resource_attach()` registra outros recursos com um destrutor;
+`process_resource_release()` fecha um recurso antecipadamente e
+`process_resource_transfer()` transfere sua posse para um PID vivo. Cada recurso
+so pode ser registrado uma vez. O registro global comporta 256 entradas;
+esgotamento retorna falha sem deixar alocacoes sem dono.
+
+Destrutores executam uma vez, com IRQs desabilitadas; devem ser curtos, nao
+bloquear e nao alocar. Pilhas, tabelas vazias, heap associado, blocos e mapas
+gerenciados sao devolvidos automaticamente em exit/kill. Usar PMM/VMM brutos
+continua exigindo gerenciamento explicito: esses acessos tambem sustentam as
+tabelas e o heap do kernel e nao sao atribuidos automaticamente ao chamador.
+Objetos compartilhados entre PIDs precisam de transferencia ou de um dono
+com vida util suficiente; nao ha garbage collector ou contagem geral de referencias.
 
 Esta etapa executa callbacks confiaveis em ring 0, na mesma CR3 e memoria do
 kernel, em uma CPU. Nao implementa executaveis ELF, fork/exec, syscalls, ring 3,

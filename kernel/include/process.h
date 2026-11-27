@@ -10,6 +10,7 @@ enum process_block_reason { PROCESS_NOT_BLOCKED, PROCESS_BLOCK_SLEEP, PROCESS_BL
 struct process_info {
     uint64_t pid, parent, cpu_ticks;
     size_t threads;
+    size_t resources;
     enum process_state state;
     enum process_block_reason blocked_on;
     int exit_status;
