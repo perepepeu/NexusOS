@@ -16,10 +16,16 @@ int main(void) {
     process_core_tick(&s, 1); assert(s.tasks[a].info.cpu_ticks == 1);
     s.tasks[a].info.state = PROCESS_READY; assert(process_core_pick(&s, 1) == b);
     s.tasks[b].info.state = PROCESS_READY; assert(process_core_pick(&s, 1) == 0);
-    s.tasks[a].info.state = PROCESS_SLEEPING; s.tasks[a].sleep_start = UINT64_MAX - 1; s.tasks[a].sleep_ticks = 4;
-    process_core_tick(&s, 0); assert(s.tasks[a].info.state == PROCESS_SLEEPING);
+    s.current = (unsigned int)a; s.tasks[a].info.state = PROCESS_RUNNING;
+    assert(!process_core_block(&s, PROCESS_BLOCK_SLEEP, 0, 0));
+    assert(!process_core_block(&s, PROCESS_NOT_BLOCKED, 1, 0));
+    assert(process_core_block(&s, PROCESS_BLOCK_SLEEP, 4, UINT64_MAX - 1));
+    assert(!process_core_block(&s, PROCESS_BLOCK_SLEEP, 4, 0));
+    process_core_tick(&s, 0); assert(s.tasks[a].info.state == PROCESS_BLOCKED);
     process_core_tick(&s, 2); assert(s.tasks[a].info.state == PROCESS_READY);
-    s.tasks[0].info.state = PROCESS_WAITING; s.tasks[0].waiting_for = 2;
+    s.current = 0; s.tasks[0].info.state = PROCESS_RUNNING;
+    assert(!process_core_block(&s, PROCESS_BLOCK_WAIT, 1, 0));
+    assert(process_core_block(&s, PROCESS_BLOCK_WAIT, 2, 0));
     assert(process_core_finish(&s, 2, 42) && s.tasks[0].info.state == PROCESS_READY);
     assert(!process_core_finish(&s, 2, 0));
     s.tasks[0].info.state = PROCESS_RUNNING;
@@ -55,7 +61,7 @@ int main(void) {
     }
     for (unsigned int i = 1; i < PROCESS_MAX; ++i) assert(process_core_create(&s, "full") == (int)i);
     assert(process_core_free_slot(&s) < 0 && process_core_create(&s, "overflow") < 0);
-    for (unsigned int i = 0; i < PROCESS_MAX; ++i) s.tasks[i].info.state = PROCESS_WAITING;
+    for (unsigned int i = 0; i < PROCESS_MAX; ++i) s.tasks[i].info.state = PROCESS_BLOCKED;
     assert(process_core_pick(&s, 100) < 0);
     s.tasks[1] = (struct process_record){0}; s.next_pid = UINT64_MAX;
     assert(process_core_create(&s, "pid-wrap") < 0);

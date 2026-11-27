@@ -5,10 +5,12 @@
 #include <stdint.h>
 
 enum { PROCESS_MAX = 32, PROCESS_NAME = 24 };
-enum process_state { PROCESS_UNUSED, PROCESS_READY, PROCESS_RUNNING, PROCESS_SLEEPING, PROCESS_WAITING, PROCESS_ZOMBIE };
+enum process_state { PROCESS_UNUSED, PROCESS_READY, PROCESS_RUNNING, PROCESS_BLOCKED, PROCESS_TERMINATED };
+enum process_block_reason { PROCESS_NOT_BLOCKED, PROCESS_BLOCK_SLEEP, PROCESS_BLOCK_WAIT };
 struct process_info {
     uint64_t pid, parent, cpu_ticks;
     enum process_state state;
+    enum process_block_reason blocked_on;
     int exit_status;
     char name[PROCESS_NAME];
 };

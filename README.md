@@ -671,10 +671,12 @@ aguarda com STI/HLT. O terminal cede a CPU ao consultar o teclado; por isso os
 processos de demonstracao continuam executando sem entrada do usuario.
 Um processo que nunca cede a CPU pode bloquear o restante do sistema.
 
-Estados: READY, RUNNING, SLEEPING, WAITING e ZOMBIE. Ao retornar da funcao de
+Estados: READY, RUNNING, BLOCKED e TERMINATED. O campo `blocked_on` distingue
+sono pelo PIT de espera por filho; ambos sao BLOCKED e so voltam a READY
+quando sua condicao e satisfeita. Ao retornar da funcao de
 entrada, o processo termina com status 0; `process_exit(status)` informa outro
 resultado. A pilha e liberada somente depois de sair de seu contexto. O registro
-ZOMBIE e o status permanecem ate o pai chamar `process_wait(pid, &status)`.
+TERMINATED e o status permanecem ate o pai chamar `process_wait(pid, &status)`.
 Filhos orfaos sao adotados pelo PID 1. Sem wait, zombies ocupam slots, mesmo
 quando suas pilhas ja foram devolvidas. O PID 1 e protegido contra kill.
 

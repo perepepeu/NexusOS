@@ -24,7 +24,7 @@ static void release_stack(struct process_record *p) {
 }
 static void reap_stacks(void) {
     for (unsigned int i = 1; i < PROCESS_MAX; ++i)
-        if (i != manager.current && manager.tasks[i].info.state == PROCESS_ZOMBIE) release_stack(&manager.tasks[i]);
+        if (i != manager.current && manager.tasks[i].info.state == PROCESS_TERMINATED) release_stack(&manager.tasks[i]);
 }
 static void schedule(void) {
     unsigned int old = manager.current;
@@ -96,8 +96,7 @@ void process_sleep(uint64_t ticks) {
     if (!ticks) { process_yield(); return; }
     KASSERT(manager.ready && ticks <= INT64_MAX);
     uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
-    struct process_record *p = &manager.tasks[manager.current];
-    p->sleep_start = timer_ticks(); p->sleep_ticks = ticks; p->info.state = PROCESS_SLEEPING;
+    KASSERT(process_core_block(&manager, PROCESS_BLOCK_SLEEP, ticks, timer_ticks()));
     schedule(); irq_restore(flags);
 }
 bool process_kill(uint64_t pid, int status) {
@@ -117,9 +116,8 @@ bool process_wait(uint64_t child, int *status) {
     int slot = process_core_find(&manager, child);
     if (slot <= 0 || (unsigned int)slot == manager.current ||
             manager.tasks[slot].info.parent != process_current_pid()) { irq_restore(flags); return false; }
-    while (manager.tasks[slot].info.state != PROCESS_ZOMBIE) {
-        struct process_record *p = &manager.tasks[manager.current];
-        p->waiting_for = child; p->info.state = PROCESS_WAITING;
+    while (manager.tasks[slot].info.state != PROCESS_TERMINATED) {
+        KASSERT(process_core_block(&manager, PROCESS_BLOCK_WAIT, child, timer_ticks()));
         schedule();
     }
     reap_stacks(); bool result = process_core_collect(&manager, child, status);
@@ -181,7 +179,7 @@ void process_selftest(bool guard_fault) {
     KASSERT(!process_wait(a, &status) && !process_kill(1, -9));
     a = process_create("sleep-kill", sleep_worker, 0); KASSERT(a);
     process_yield();
-    KASSERT(manager.tasks[process_core_find(&manager, a)].info.state == PROCESS_SLEEPING);
+    KASSERT(manager.tasks[process_core_find(&manager, a)].info.state == PROCESS_BLOCKED);
     KASSERT(process_kill(a, -9) && !process_kill(a, -9));
     KASSERT(process_wait(a, &status) && status == -9);
     uint64_t start = timer_ticks(); process_sleep(2); KASSERT(timer_ticks() - start >= 2);

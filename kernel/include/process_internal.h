@@ -13,6 +13,7 @@ bool process_core_init(struct process_manager *s);
 int process_core_find(struct process_manager *s, uint64_t pid);
 int process_core_free_slot(struct process_manager *s);
 int process_core_create(struct process_manager *s, const char *name);
+bool process_core_block(struct process_manager *s, enum process_block_reason reason, uint64_t value, uint64_t now);
 void process_core_tick(struct process_manager *s, uint64_t now);
 int process_core_pick(struct process_manager *s, uint64_t now);
 bool process_core_finish(struct process_manager *s, uint64_t pid, int status);

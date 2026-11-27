@@ -451,6 +451,7 @@ def main():
     group.add_argument("--access", action="store_true", help="Testa acessos invalidos e diagnosticos do heap/CPU.")
     group.add_argument("--memtest", action="store_true", help="Testa comandos meminfo e memtest repetidos.")
     group.add_argument("--processes", action="store_true", help="Testa processos, contexto, terminal e guarda de pilha.")
+    parser.add_argument("--quick", action="store_true", help="Executa uma configuracao de RAM por cenario, mantendo BIOS/UEFI.")
     args = parser.parse_args()
     Path("build").mkdir(exist_ok=True)
     firmware = Path("/usr/share/OVMF/OVMF_CODE_4M.fd")
@@ -475,7 +476,8 @@ def main():
                 raise RuntimeError(result.stdout.decode(errors="replace"))
         for mode in ("bios", "uefi"):
             previous = 0
-            for size in ((128, 512, 5120) if args.memory or args.pmm or scenario in ("vmm", "heap", "memtest", "processes") else (256,)):
+            sizes = (128, 512, 5120) if args.memory or args.pmm or scenario in ("vmm", "heap", "memtest", "processes") else (256,)
+            for size in (sizes[:1] if args.quick else sizes):
                 detected = boot(mode, scenario, image, firmware, size)
                 if args.memory:
                     if detected <= previous: raise RuntimeError("RAM detectada nao cresceu com a configuracao")

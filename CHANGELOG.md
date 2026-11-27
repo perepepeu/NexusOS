@@ -2,6 +2,9 @@
 
 ## Em desenvolvimento
 
+- Estados canonicos READY/RUNNING/BLOCKED/TERMINATED e motivo separado de bloqueio.
+- Transicoes de bloqueio validadas, com despertar somente pelo evento correspondente.
+
 - Gerenciador de processos do kernel com PID, pai e estados de execucao.
 - Pilhas RW/NX de 16 KiB com guardas, troca de contexto SysV e round-robin cooperativo.
 - Sono pelo PIT, exit/wait, adocao de orfaos, kill e liberacao de pilhas fora da CPU.
