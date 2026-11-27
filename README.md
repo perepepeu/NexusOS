@@ -619,6 +619,34 @@ interior e execucao no heap NX. Confere panic, CR2, tipo de acesso e regiao,
 mantendo a VM interrompida para diagnostico. Os testes do heap com ASan/UBSan
 tambem corrompem e restauram redzones e veneno para validar os detectores.
 
+## Diagnostico e teste de memoria pelo terminal
+
+`meminfo` e um alias de `memory`: informa RAM total identificada, bytes
+utilizaveis no boot, categorias reservadas e bytes atualmente livres no PMM.
+O total e a uniao das regioes USABLE, BOOTLOADER_RECLAIMABLE,
+ACPI_RECLAIMABLE, ACPI_NVS, EXECUTABLE_AND_MODULES e BAD_MEMORY. Regioes
+sobrepostas contam uma vez. Reservada/MMIO, framebuffer e tipos desconhecidos
+ficam fora do total, pois nao permitem deduzir RAM instalada com seguranca.
+Memoria defeituosa participa do total identificado, nunca da disponivel.
+`memmap`, `pmm`, `vmm` e `heap` detalham cada camada.
+
+`memtest` executa um teste limitado pelo terminal, sem reiniciar: aloca ate 64
+paginas proprias, verifica zeros e padroes em todos os seus bytes, testa
+kmalloc/kcalloc/krealloc/kfree e confere os contadores PMM/VMM/heap antes e
+depois. Usa o intervalo `[window_base + 16 MiB, window_base + 16 MiB + 256 KiB)`,
+reservado ao teste. Se esse intervalo estiver ocupado ou faltar memoria,
+retorna falha e limpa seus recursos. Nao sobrescreve memoria de outros clientes.
+Nao testa toda a RAM fisica e nao substitui um teste de hardware de memoria.
+Os selftests fatais de protecao e o esgotamento do PMM ficam na suite externa.
+
+```sh
+make check-memory check-pmm check-vmm check-heap check-access check-memtest
+```
+
+`check-memtest` chama o comando duas vezes em cada boot, confere a rejeicao de
+argumentos, a integridade do heap e a ausencia de alocacoes residuais, em
+BIOS/UEFI com 128, 512 e 5120 MiB.
+
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1
 - https://github.com/Limine-Bootloader/Limine/blob/v12.11.1/USAGE.md

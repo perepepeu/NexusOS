@@ -135,6 +135,7 @@ void heap_selftest(void) {
     unsigned char *grown = krealloc(a, 32769); KASSERT(grown);
     for (size_t i = 0; i < 31; ++i) KASSERT(grown[i] == i);
     KASSERT(!krealloc(grown, SIZE_MAX) && !kmalloc(0) && !kcalloc(SIZE_MAX, 2));
+    KASSERT(!kmalloc(HEAP_PAGES * 4096ull)); /* Limite virtual, incluindo metadados/guardas. */
     for (size_t i = 0; i < 200000; ++i) KASSERT(c[i] == (unsigned char)(i * 7));
     struct vmm_mapping mapping;
     KASSERT(vmm_translate((uintptr_t)c, &mapping) && mapping.flags == VMM_WRITE);

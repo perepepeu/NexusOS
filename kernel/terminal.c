@@ -44,6 +44,7 @@ static void memory_summary(void) {
     const struct memory_stats *stats = memory_get_stats();
     if (!stats->valid) { put("Mapa de memoria indisponivel.\n"); return; }
     put("Memoria fisica - mapa Limine\nRegioes: "); number(stats->region_count, true); put("\n");
+    memory_bytes("RAM total identificada: ", stats->ram_bytes);
     memory_bytes("Utilizavel no boot: ", stats->bytes[MEMORY_USABLE]);
     put("Paginas utilizaveis de 4 KiB: "); number(stats->usable_pages, true); put("\n");
     memory_bytes("Bootloader (reclamavel depois): ", stats->bytes[MEMORY_BOOTLOADER]);
@@ -163,16 +164,22 @@ static void command(char *line, const char *bootloader, const char *boot_version
     bool known = equal(name, "help") || equal(name, "clear") || equal(name, "version")
         || equal(name, "uptime") || equal(name, "sysinfo") || equal(name, "history")
         || equal(name, "reboot") || equal(name, "shutdown")
-        || equal(name, "memory") || equal(name, "memmap") || equal(name, "pmm") || equal(name, "vmm") || equal(name, "heap");
+        || equal(name, "memory") || equal(name, "meminfo") || equal(name, "memtest")
+        || equal(name, "memmap") || equal(name, "pmm") || equal(name, "vmm") || equal(name, "heap");
     if (!known) { put("Comando desconhecido: "); put(name); put(". Digite help.\n"); return; }
     if (*args) { put("Uso: "); put(name); put(" (sem argumentos).\n"); return; }
     if (equal(name, "help")) {
         put("Comandos: help clear echo version uptime sysinfo history\n");
         put("Energia: reboot shutdown\n");
-        put("Memoria: memory memmap pmm vmm heap\n");
+        put("Memoria: memory meminfo memmap pmm vmm heap memtest\n");
         put("Edicao: setas, Home/End, Delete, Backspace, historico Up/Down.\n");
         put("Ctrl+C cancela, Ctrl+U apaga a linha, Ctrl+L limpa a tela.\n");
-    } else if (equal(name, "memory")) memory_summary();
+    } else if (equal(name, "memory") || equal(name, "meminfo")) memory_summary();
+    else if (equal(name, "memtest")) {
+        put("Memtest: teste limitado a 64 paginas proprias e blocos temporarios do heap.\n");
+        if (memory_test_run()) put("Memtest: PMM, VMM e heap OK; sem vazamentos.\n");
+        else put("Memtest: FALHOU (memoria insuficiente, dados ou contadores invalidos).\n");
+    }
     else if (equal(name, "memmap")) memory_map();
     else if (equal(name, "pmm")) page_summary();
     else if (equal(name, "vmm")) virtual_summary();

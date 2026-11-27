@@ -7,6 +7,8 @@ OVMF ?= /usr/share/OVMF/OVMF_CODE_4M.fd
 DISPLAY_BACKEND ?= gtk
 KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o build/kernel/interrupts.o build/kernel/interrupt_stubs.o build/kernel/keyboard.o build/kernel/terminal.o build/kernel/power.o build/kernel/acpi_s5.o build/kernel/memory.o build/kernel/pmm_core.o build/kernel/pmm.o build/kernel/vmm_core.o build/kernel/vmm.o build/kernel/heap_core.o build/kernel/heap.o
 
+KERNEL_OBJECTS += build/kernel/memtest.o
+
 .PHONY: check-toolchain
 check-toolchain:
 	bash scripts/check-toolchain.sh "$(CC)" "$(AS)" "$(LD)" "$(ARCH)" "$(CFLAGS)" "$(ASFLAGS)" "$(LDFLAGS)"
@@ -117,6 +119,10 @@ check-heap: iso check-heap-unit
 .PHONY: check-access
 check-access: iso check-heap-unit
 	python3 scripts/check-kernel.py --access
+
+.PHONY: check-memtest
+check-memtest: iso
+	python3 scripts/check-kernel.py --memtest
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader

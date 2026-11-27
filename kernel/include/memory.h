@@ -15,6 +15,7 @@ enum memory_error {
 };
 struct memory_stats {
     uint64_t bytes[MEMORY_CLASS_COUNT];
+    uint64_t ram_bytes; /* Uniao das regioes identificadas como RAM; exclui reservada/MMIO. */
     uint64_t usable_pages, largest_base, largest_bytes, highest_address;
     unsigned int region_count;
     bool valid;
@@ -25,4 +26,5 @@ const struct memory_stats *memory_get_stats(void);
 const struct limine_memmap_entry *memory_get_region(unsigned int index);
 const char *memory_error_name(enum memory_error error);
 const char *memory_type_name(uint64_t type);
+bool memory_test_run(void);
 #endif

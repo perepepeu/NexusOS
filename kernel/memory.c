@@ -41,7 +41,7 @@ static bool count_interval(unsigned int category, uint64_t base, uint64_t end) {
 enum memory_error memory_detect(const struct limine_memmap_response *map) {
     stats.valid = false;
     stats.region_count = 0;
-    stats.usable_pages = stats.largest_base = stats.largest_bytes = stats.highest_address = 0;
+    stats.ram_bytes = stats.usable_pages = stats.largest_base = stats.largest_bytes = stats.highest_address = 0;
     for (unsigned int i = 0; i < MEMORY_CLASS_COUNT; ++i) stats.bytes[i] = 0;
     if (!map || !map->entries || !map->entry_count) return MEMORY_MISSING;
     if (map->entry_count > MEMORY_MAX_REGIONS) return MEMORY_TOO_MANY;
@@ -79,6 +79,22 @@ enum memory_error memory_detect(const struct limine_memmap_response *map) {
     }
     for (unsigned int i = 0; i < MEMORY_CLASS_COUNT; ++i)
         if (active[i] && !count_interval(i, starts[i], ends[i])) return MEMORY_OVERFLOW;
+    /* Aberturas MMIO nao sao RAM instalada. Uniao entre categorias de RAM
+     * evita duplicar entradas nao utilizaveis sobrepostas permitidas pelo Limine. */
+    uint64_t ram_end = 0;
+    for (uint64_t i = 0; i < map->entry_count; ++i) {
+        const struct limine_memmap_entry *entry = &regions[i];
+        unsigned int category = classify(entry->type);
+        if (category != MEMORY_USABLE && category != MEMORY_BAD && category != MEMORY_BOOTLOADER && category != MEMORY_ACPI &&
+                category != MEMORY_NVS && category != MEMORY_KERNEL) continue;
+        uint64_t end = entry->base + entry->length;
+        uint64_t start = entry->base > ram_end ? entry->base : ram_end;
+        if (end > start) {
+            if (stats.ram_bytes > UINT64_MAX - (end - start)) return MEMORY_OVERFLOW;
+            stats.ram_bytes += end - start;
+        }
+        if (end > ram_end) ram_end = end;
+    }
     stats.region_count = (unsigned int)map->entry_count;
     stats.highest_address = highest;
     stats.valid = true;

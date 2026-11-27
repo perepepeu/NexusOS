@@ -2,6 +2,10 @@
 
 ## Em desenvolvimento
 
+- Total agregado de RAM identificada, com uniao de intervalos e exclusao de MMIO.
+- Comandos meminfo (alias de memory) e memtest (teste limitado de PMM/VMM/heap).
+- Testes de repeticao do memtest, limpeza e limite virtual do heap.
+
 - Diagnostico de page fault com tipo de acesso, causa, bits da CPU e regiao.
 - Guardas ausentes antes/depois das arenas e redzones por bloco no heap.
 - Auditoria de metadados, veneno de blocos livres e panic 10 para corrupcao.

@@ -25,6 +25,7 @@ int main(void) {
     assert(stats->bytes[MEMORY_USABLE] == 0x200003000ull);
     assert(stats->bytes[MEMORY_RESERVED] == 0x4000); /* Uniao, sem duplicar a sobreposicao. */
     assert(stats->bytes[MEMORY_BOOTLOADER] == 0x2000 && stats->bytes[MEMORY_NVS] == 0x1000);
+    assert(stats->ram_bytes == 0x200006000ull);
     assert(stats->usable_pages == 0x200002 && stats->largest_base == 0x100000000ull);
     assert(stats->largest_bytes == 0x200000000ull && stats->highest_address == 0x300000000ull);
     mixed[0].length = 1; /* A copia propria nao muda com o buffer do bootloader. */
@@ -38,6 +39,14 @@ int main(void) {
     assert(detect(unknown, 2) == MEMORY_OK);
     assert(memory_get_stats()->usable_pages == 0 && memory_get_stats()->bytes[MEMORY_UNKNOWN] == 4096);
     assert(memory_get_stats()->bytes[MEMORY_BAD] == 4096);
+    assert(memory_get_stats()->ram_bytes == 4096); /* RAM defeituosa conta no total, nunca na disponivel. */
+    struct limine_memmap_entry ram_overlap[] = {
+        {0x1000, 0x3000, LIMINE_MEMMAP_EXECUTABLE_AND_MODULES},
+        {0x2000, 0x1000, LIMINE_MEMMAP_ACPI_RECLAIMABLE},
+        {0x3000, 0x3000, LIMINE_MEMMAP_ACPI_NVS},
+        {0x8000, 0x1000, LIMINE_MEMMAP_RESERVED}
+    };
+    assert(detect(ram_overlap, 4) == MEMORY_OK && memory_get_stats()->ram_bytes == 0x5000);
     struct limine_memmap_entry overlap[] = {{0x1000, 0x3000, 1}, {0x2000, 4096, 0}};
     assert(detect(overlap, 2) == MEMORY_OVERLAP);
     overlap[0].type = 0; overlap[1].type = 1;
