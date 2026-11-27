@@ -11,6 +11,7 @@ KERNEL_OBJECTS += build/kernel/memtest.o
 KERNEL_OBJECTS += build/kernel/process_core.o build/kernel/process.o build/kernel/process_switch.o
 KERNEL_OBJECTS += build/kernel/runtime.o
 KERNEL_OBJECTS += build/kernel/resource_core.o build/kernel/process_resources.o
+KERNEL_OBJECTS += build/kernel/address_space_core.o build/kernel/address_space.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -154,6 +155,12 @@ check-scheduler-unit:
 
 check-scheduler: iso check-scheduler-unit check-processes-unit check-resources-unit
 	python3 scripts/check-kernel.py --scheduler
+
+.PHONY: check-address-space-unit
+check-address-space-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/address_space_test.c kernel/address_space_core.c -o build/tests/address-space
+	build/tests/address-space
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader

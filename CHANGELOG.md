@@ -2,6 +2,9 @@
 
 ## Em desenvolvimento
 
+- Espacos privados de quatro niveis, paginas USER/RX/RW-NX e metade alta supervisor compartilhada.
+- Construcao limitada, copia pelo loader, rollback OOM e destruicao de espacos inativos.
+
 - Segmentos de codigo/dados Ring 3 na GDT e RSP0 do TSS atualizado por thread.
 
 - Round Robin preemptivo com fila FIFO e quantum de 5 ticks/50 ms no PIT de 100 Hz.

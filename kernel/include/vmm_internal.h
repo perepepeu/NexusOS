@@ -23,4 +23,5 @@ enum vmm_result vmm_core_alloc(struct vmm_state *, uint64_t, unsigned int, uint6
 enum vmm_result vmm_core_unmap(struct vmm_state *, uint64_t, uint64_t *);
 enum vmm_result vmm_core_protect(struct vmm_state *, uint64_t, unsigned int);
 bool vmm_core_translate(struct vmm_state *, uint64_t, struct vmm_mapping *);
+bool vmm_kernel_context(struct vmm_ops *ops, uint64_t *root, uint64_t *mask);
 #endif

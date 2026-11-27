@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-enum vmm_flags { VMM_WRITE = 1, VMM_EXEC = 2 };
+enum vmm_flags { VMM_WRITE = 1, VMM_EXEC = 2, VMM_USER = 4 };
 enum vmm_result {
     VMM_OK, VMM_NOT_READY, VMM_BAD_ARGUMENT, VMM_BAD_ADDRESS, VMM_BAD_PHYSICAL,
     VMM_BAD_FLAGS, VMM_PROTECTED, VMM_ALREADY_MAPPED, VMM_NOT_MAPPED,

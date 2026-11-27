@@ -93,6 +93,12 @@ void vmm_get_stats(struct vmm_stats *stats) {
     if (!stats) return;
     uint64_t flags = irq_save(); *stats = manager.stats; irq_restore(flags);
 }
+bool vmm_kernel_context(struct vmm_ops *ops, uint64_t *root, uint64_t *mask) {
+    uint64_t flags = irq_save();
+    bool ok = manager.stats.ready;
+    if (ok) { *ops = manager.ops; *root = manager.stats.root_address; *mask = manager.physical_mask; }
+    irq_restore(flags); return ok;
+}
 
 void vmm_selftest(uint64_t hhdm, unsigned int fault) {
     struct pmm_stats before, after;
