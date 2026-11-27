@@ -2,6 +2,10 @@
 
 ## Em desenvolvimento
 
+- Comandos reboot e shutdown com reset ACPI/PS2 e desligamento ACPI S5.
+- Validacao das tabelas ACPI e leitor limitado de pacotes AML constantes.
+- Testes de eventos reais de energia em BIOS/UEFI, fallback e ACPI ausente.
+
 - Terminal com comandos help, clear, echo, version, uptime, sysinfo e history.
 - Editor com cursor, insercao, historico de oito entradas e atalhos Ctrl.
 - Rolagem vertical do console e horizontal da linha de entrada.

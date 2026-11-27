@@ -7,6 +7,7 @@
 #include <serial.h>
 #include <terminal.h>
 #include <version.h>
+#include <power.h>
 
 enum { LINE_SIZE = 128, HISTORY_SIZE = 8 };
 static const char prompt[] = "nexus> ";
@@ -75,13 +76,19 @@ static void command(char *line, const char *bootloader, const char *boot_version
     while (*args == ' ' || *args == '\t') ++args;
     if (equal(name, "echo")) { put(args); put("\n"); return; }
     bool known = equal(name, "help") || equal(name, "clear") || equal(name, "version")
-        || equal(name, "uptime") || equal(name, "sysinfo") || equal(name, "history");
+        || equal(name, "uptime") || equal(name, "sysinfo") || equal(name, "history")
+        || equal(name, "reboot") || equal(name, "shutdown");
     if (!known) { put("Comando desconhecido: "); put(name); put(". Digite help.\n"); return; }
     if (*args) { put("Uso: "); put(name); put(" (sem argumentos).\n"); return; }
     if (equal(name, "help")) {
         put("Comandos: help clear echo version uptime sysinfo history\n");
+        put("Energia: reboot shutdown\n");
         put("Edicao: setas, Home/End, Delete, Backspace, historico Up/Down.\n");
         put("Ctrl+C cancela, Ctrl+U apaga a linha, Ctrl+L limpa a tela.\n");
+    } else if (equal(name, "reboot")) {
+        if (!power_reboot()) put("Nao foi possivel reiniciar; terminal continua ativo.\n");
+    } else if (equal(name, "shutdown")) {
+        if (!power_shutdown()) put("Nao foi possivel desligar; terminal continua ativo.\n");
     } else if (equal(name, "clear")) clear_screen();
     else if (equal(name, "version")) put("NexusOS " NEXUS_VERSION " (x86_64)\n");
     else if (equal(name, "uptime")) {

@@ -7,6 +7,7 @@
 #include <keyboard.h>
 #include <serial.h>
 #include <terminal.h>
+#include <power.h>
 
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t requests_start[] = LIMINE_REQUESTS_START_MARKER;
@@ -38,6 +39,10 @@ __attribute__((used, section(".limine_requests")))
 static volatile struct limine_executable_address_request executable_address = {
     .id = LIMINE_EXECUTABLE_ADDRESS_REQUEST_ID,
 };
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_rsdp_request rsdp = {.id = LIMINE_RSDP_REQUEST_ID};
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_memmap_request memory_map = {.id = LIMINE_MEMMAP_REQUEST_ID};
 
 __attribute__((used, section(".limine_requests_end")))
 static volatile uint64_t requests_end[] = LIMINE_REQUESTS_END_MARKER;
@@ -166,6 +171,8 @@ void kmain(void) {
     if (boot_option("selftest=assert")) KASSERT(false);
 
     log_info("boot", "NexusOS: kernel inicial pronto. CPU em espera.");
+    power_init(rsdp.response && !boot_option("selftest=power-fallback") ? rsdp.response->address : 0,
+        hhdm.response->offset, memory_map.response);
     if (keyboard_init()) {
         if (boot_option("selftest=keyboard") || boot_option("selftest=keyboard-echo"))
             keyboard_loop(boot_option("selftest=keyboard"));

@@ -271,6 +271,8 @@ o texto digitado, sem interpretacao de aspas, pipes ou redirecionamentos.
 | `uptime` | Tempo desde a configuracao do PIT, com centesimos nominais |
 | `sysinfo` | Arquitetura, bootloader, timer e estado do teclado |
 | `history` | Lista os ultimos oito comandos, incluindo `history` |
+| `reboot` | Reinicia o sistema e volta ao boot |
+| `shutdown` | Desliga a maquina via ACPI S5 |
 
 O editor aceita 127 caracteres, insercao na posicao do cursor, Left/Right,
 Home/End, Delete, Backspace e Tab (quatro espacos). Up/Down navegam pelo
@@ -293,6 +295,48 @@ respostas, versao, uptime, historico circular, restauracao de rascunho,
 insercao/Delete/Backspace, cancelamento, clear/Ctrl+L, espacos e limite de
 entrada. Capturas ficam em `build/screen-terminal-{bios|uefi}.ppm` e
 `build/screen-terminal-limits-{bios|uefi}.ppm`, com logs de mesmos sufixos.
+
+## Reinicializacao e desligamento
+
+Digite `reboot` ou `shutdown` no terminal, sem argumentos. Os comandos operam
+no hardware do sistema convidado: no QEMU, reboot reinicia a VM e shutdown
+encerra a VM. Se o mecanismo nao estiver disponivel ou falhar, uma mensagem
+informa o erro e o terminal continua ativo.
+
+O kernel solicita RSDP e mapa de memoria ao Limine. Antes de acessar ACPI,
+valida as regioes mapeadas, assinaturas, tamanhos e checksums de RSDP,
+RSDT/XSDT, FADT e DSDT. O reset usa o registro I/O da FADT quando suportado,
+com alternativa pelo comando `0xFE` do controlador PS/2. As tentativas possuem
+espera limitada e registram o mecanismo utilizado na serial e na tela.
+
+O desligamento descobre os tipos S5 no objeto AML constante `\_S5_` da DSDT,
+habilita o modo ACPI via SMI quando necessario e programa SLP_TYP/SLP_EN nos
+registradores PM1a/PM1b. Nenhuma porta de desligamento do QEMU e fixada no
+codigo: enderecos e valores vem das tabelas do firmware.
+
+O backend atual suporta registros System I/O e um subconjunto constante de
+AML. Ele nao e um interpretador ACPI completo: nao executa metodos como
+`_PTS`/`_GTS`, nao resolve S5 calculado por metodos/SSDT e nao implementa
+hardware-reduced ACPI nem registros de energia em MMIO/PCI. A validacao de
+funcionamento foi feita no QEMU q35, com SeaBIOS e OVMF.
+
+```sh
+make check-power
+```
+
+O teste verifica oito casos: shutdown, reboot ACPI, reboot alternativo PS/2
+e shutdown sem ACPI, em BIOS e UEFI. Os comandos sao digitados pelo teclado
+virtual; o monitor apenas observa eventos. Shutdown exige evento SHUTDOWN do
+guest e encerramento limpo do processo QEMU. Reboot exige evento RESET do
+guest, um segundo boot completo e um comando funcionando no novo terminal.
+O caso sem ACPI confirma o erro e a continuidade do terminal. Logs e eventos
+ficam em `build/power-{cenario}-{bios|uefi}*`.
+
+`make check-acpi` testa o parser AML com ASan/UBSan: pacotes validos, dados
+truncados, textos falsos em buffers/metodos e 10000 entradas aleatorias.
+O parser ignora corpos que nao interpreta e rejeita tamanhos ou tipos invalidos.
+
+Referencia: [ACPI Hardware Specification](https://uefi.org/specs/ACPI/6.5/04_ACPI_Hardware_Specification.html).
 
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1
