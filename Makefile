@@ -5,7 +5,7 @@ QEMU := qemu-system-x86_64
 QEMUFLAGS := -machine q35 -accel tcg -m 256M -boot d -net none -no-reboot
 OVMF ?= /usr/share/OVMF/OVMF_CODE_4M.fd
 DISPLAY_BACKEND ?= gtk
-KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o build/kernel/interrupts.o build/kernel/interrupt_stubs.o build/kernel/keyboard.o
+KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o build/kernel/interrupts.o build/kernel/interrupt_stubs.o build/kernel/keyboard.o build/kernel/terminal.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -15,14 +15,18 @@ check-toolchain:
 setup-limine:
 	bash scripts/setup-limine.sh
 
-KERNEL_CFLAGS := $(CFLAGS) -mcmodel=kernel -fno-asynchronous-unwind-tables -fno-unwind-tables -O2 -Ikernel/include -MMD -MP
+KERNEL_CFLAGS := $(CFLAGS) -mcmodel=kernel -fno-asynchronous-unwind-tables -fno-unwind-tables -O2 -Ikernel/include -Ibuild/include -MMD -MP
 
 kernel: build/kernel.elf
 
 check-kernel-arch:
 	@test "$(ARCH)" = x86_64 || { echo "O kernel inicial suporta apenas ARCH=x86_64."; exit 1; }
 
-build/kernel/%.o: kernel/%.c toolchain.mk Makefile | check-kernel-arch
+build/include/version.h: VERSION Makefile
+	mkdir -p $(@D)
+	printf '#define NEXUS_VERSION "%s"\n' "$$(tr -d '\r\n' < VERSION)" > $@
+
+build/kernel/%.o: kernel/%.c toolchain.mk Makefile build/include/version.h | check-kernel-arch
 	mkdir -p $(@D)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
@@ -60,6 +64,10 @@ check-interrupts: iso
 .PHONY: check-keyboard
 check-keyboard: iso
 	python3 scripts/check-kernel.py --keyboard
+
+.PHONY: check-terminal
+check-terminal: iso
+	python3 scripts/check-kernel.py --terminal
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader

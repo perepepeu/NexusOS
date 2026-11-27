@@ -8,3 +8,4 @@
 *.asm text eol=lf
 *.ld text eol=lf
 Makefile text eol=lf
+VERSION text eol=lf

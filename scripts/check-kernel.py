@@ -79,6 +79,51 @@ def type_keyboard_test(monitor_path):
     chord("ret")
     chord("esc")
 
+
+def type_terminal_test(monitor_path, limits=False):
+    def chord(*keys):
+        items = [(key, True) for key in keys] + [(key, False) for key in reversed(keys)]
+        qmp_execute(monitor_path, "input-send-event", {"events": [
+            {"type": "key", "data": {"down": down, "key": {"type": "qcode", "data": key}}}
+            for key, down in items]})
+        time.sleep(0.03)
+
+    def text(value):
+        mapping = {" ": "spc", "-": "minus", ".": "dot"}
+        for character in value:
+            if character.isupper(): chord("shift", character.lower())
+            else: chord(mapping.get(character, character))
+
+    def command(value):
+        text(value); chord("ret")
+
+    if limits:
+        chord("ret")
+        command("  echo   espacos ")
+        command("echo " + "x" * 122 + "zzzz")
+        command("echo limits-ok")
+        return
+    command("HELP")
+    command("version")
+    command("uptime")
+    command("sysinfo")
+    command("echo ola nexus")
+    text("echo errado"); chord("ctrl", "u"); command("echo limpo")
+    text("echo ac"); chord("left"); text("b"); chord("end"); chord("ret")
+    text("echo axbc"); chord("home")
+    for _ in range(6): chord("right")
+    chord("delete"); chord("end"); chord("ret")
+    text("echo abxc"); chord("left"); chord("backspace"); chord("end"); chord("ret")
+    text("echo draft"); chord("up"); chord("down"); chord("ret")
+    text("echo cancelado"); chord("ctrl", "c")
+    command("naoexiste")
+    command("help extra")
+    command("history")
+    command("clear")
+    command("version")
+    text("echo mantido"); chord("ctrl", "l"); chord("ret")
+    command("echo terminal-ok")
+
 def boot(mode, scenario, image, firmware):
     suffix = mode if scenario == "normal" else f"{scenario}-{mode}"
     log = Path(f"build/boot-{suffix}.log")
@@ -91,7 +136,9 @@ def boot(mode, scenario, image, firmware):
     marker = (b"Sistema interrompido. Reinicie a maquina." if fatal else
               b"code=1 down=0 mods=0 char=0" if scenario == "keyboard" else
               b"[keyboard] Entrada: A" if scenario == "keyboard-echo" else
-              b"Teclado pronto. Digite e pressione Enter.")
+              b"\r\nterminal-ok\r\n" if scenario == "terminal" else
+              b"\r\nlimits-ok\r\n" if scenario == "terminal-limits" else
+              b"Terminal pronto. Digite help.")
     with tempfile.TemporaryDirectory(prefix="nexus-qmp-") as directory:
         monitor_path = str(Path(directory) / "monitor.sock")
         command = [
@@ -113,6 +160,10 @@ def boot(mode, scenario, image, firmware):
                     if (scenario in ("keyboard", "keyboard-echo") and not injected and
                             b"Teclado pronto. Digite e pressione Enter." in log.read_bytes()):
                         type_keyboard_test(monitor_path)
+                        injected = True
+                    if (scenario in ("terminal", "terminal-limits") and not injected and
+                            b"Terminal pronto. Digite help." in log.read_bytes()):
+                        type_terminal_test(monitor_path, scenario == "terminal-limits")
                         injected = True
                     time.sleep(0.1)
                 # O guest deve permanecer ativo, inclusive apos um panic.
@@ -175,6 +226,21 @@ def boot(mode, scenario, image, firmware):
                      b"code=30 down=1 mods=4 char=98", b"code=11d down=0 mods=0 char=0",
                      b"code=138 down=0 mods=0 char=0", b"code=148 down=1 mods=0 char=0",
                      b"code=148 down=0 mods=0 char=0", b"code=1e down=1 mods=1 char=65"]
+    if scenario == "terminal":
+        required += [b"Comandos: help clear echo version uptime sysinfo history",
+                     b"NexusOS 0.0.1 (x86_64)", b"Arquitetura: x86_64", b"Timer: PIT 100 Hz",
+                     b"\r\nola nexus\r\n", b"\r\nlimpo\r\n", b"\r\ndraft\r\n",
+                     b"Comando desconhecido: naoexiste.", b"Uso: help (sem argumentos).",
+                     b"\r\nmantido\r\n", b"^C"]
+        if (text.count(b"\r\nabc\r\n") != 3 or b"\r\ncancelado\r\n" in text
+                or b"\r\nerrado\r\n" in text or not re.search(rb"Uptime: \d+\.\d{2}s", text)
+                or len(re.findall(rb"(?:^|\n)[1-8] ", text)) != 8):
+            raise RuntimeError(f"Edicao, cancelamento, historico ou uptime incorretos; consulte {log}")
+    if scenario == "terminal-limits":
+        required += [b"Limite de 127 caracteres por linha.", b"\r\n" + b"x" * 122 + b"\r\n",
+                     b"\r\nespacos \r\n"]
+        if b"\r\n" + b"x" * 122 + b"z" in text:
+            raise RuntimeError(f"Limite de entrada ultrapassado; consulte {log}")
     if any(message not in text for message in required):
         raise RuntimeError(f"Diagnostico incompleto; consulte {log}")
     print(f"OK: {scenario}/{mode}, serial e framebuffer; log: {log}", flush=True)
@@ -186,11 +252,13 @@ def main():
     group.add_argument("--errors", action="store_true", help="Testa logs, panic e assert.")
     group.add_argument("--interrupts", action="store_true", help="Testa tabelas, IRQs e excecoes.")
     group.add_argument("--keyboard", action="store_true", help="Injeta teclas PS/2 pelo QMP.")
+    group.add_argument("--terminal", action="store_true", help="Testa comandos e edicao do terminal.")
     args = parser.parse_args()
     Path("build").mkdir(exist_ok=True)
     firmware = Path("/usr/share/OVMF/OVMF_CODE_4M.fd")
     if not firmware.is_file(): raise SystemExit("OVMF ausente: instale o pacote ovmf.")
-    scenarios = (("keyboard", "keyboard-echo") if args.keyboard else ("logs", "panic", "assert") if args.errors else
+    scenarios = (("terminal", "terminal-limits") if args.terminal else
+                 ("keyboard", "keyboard-echo") if args.keyboard else ("logs", "panic", "assert") if args.errors else
                  ("interrupts", "divide", "opcode", "pagefault", "protection", "doublefault")
                  if args.interrupts else ("normal",))
     for scenario in scenarios:

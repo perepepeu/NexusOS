@@ -2,6 +2,11 @@
 
 ## Em desenvolvimento
 
+- Terminal com comandos help, clear, echo, version, uptime, sysinfo e history.
+- Editor com cursor, insercao, historico de oito entradas e atalhos Ctrl.
+- Rolagem vertical do console e horizontal da linha de entrada.
+- Testes de comandos e limites pelo teclado virtual em BIOS e UEFI.
+
 - Driver PS/2 por IRQ1, fila de eventos, modificadores e traducao ASCII US.
 - Demonstracao de entrada com eco, Backspace, Tab e envio de linhas por Enter.
 - Testes de teclado com injecao de teclas pelo QMP em BIOS e UEFI.

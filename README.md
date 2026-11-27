@@ -89,7 +89,8 @@ NexusOS
 ```
 
 Ao terminar, a CPU aguarda com `sti; hlt`, acordando nas interrupcoes do timer.
-Falhas fatais usam `cli; hlt`. Ainda nao ha shell. A saida do kernel
+Falhas fatais usam `cli; hlt`. Apos o boot, um terminal executa comandos internos.
+A saida do kernel
 aparece na tela e no terminal serial dos comandos `make run` e `make run-uefi`.
 O header oficial do protocolo e versionado em `kernel/include/limine.h`, com
 licenca e commit de origem preservados. Falhas no protocolo imprimem PANIC e
@@ -101,8 +102,8 @@ O console usa o framebuffer RGB de 32 bits entregue pelo Limine, respeitando
 o pitch e as mascaras de cor. Uma fonte propria 5x7 ampliada 2x desenha letras,
 numeros e pontuacao basica sobre fundo escuro. Letras sao exibidas em maiusculas;
 caracteres nao suportados usam `?`. O console suporta quebra de linha e ajuste
-automatico ao limite horizontal. Ao esgotar as linhas, limpa a tela e reinicia
-no topo. Se nao houver framebuffer compativel, a inicializacao continua pela
+automatico ao limite horizontal. Ao esgotar as linhas, rola o conteudo uma
+linha para cima. Se nao houver framebuffer compativel, a inicializacao continua pela
 serial com um aviso.
 
 ## Logs e tratamento de erros
@@ -234,11 +235,10 @@ Caps Lock combina com Shift apenas nas letras. O layout inicial e **US**.
 Pause e Print Screen sao ignorados sem alterar os modificadores. Ainda nao ha
 layout ABNT2, acentos, USB HID, LEDs ou traducao dos digitos do teclado numerico.
 
-Ao iniciar com `make run`, clique na janela do QEMU e digite em `teclado>`.
-A demonstracao ecoa caracteres na tela e serial, aceita ate 127 caracteres,
-Backspace, Tab (quatro espacos) e Enter. Enter registra a linha nos logs e
-abre outra entrada; nao executa comandos. Ctrl/Alt e teclas sem caractere sao
-entregues pela API, mas nao inserem texto nessa demonstracao. A fonte da tela
+Ao iniciar com `make run`, clique na janela do QEMU e digite no terminal `nexus>`.
+Uma demonstracao separada do driver, `teclado>`, permanece nas ISOs de teste:
+ela ecoa caracteres, aceita Backspace, Tab e Enter, sem executar comandos.
+A fonte da tela
 continua exibindo letras em maiusculas; a serial preserva o caractere original.
 
 ```sh
@@ -250,9 +250,49 @@ Verifica press/release, Shift, Caps Lock, Shift+Caps, pontuacao, Backspace,
 Enter, Ctrl/Alt direitos e esquerdos, seta E0 e os dois shifts simultaneos.
 As linhas finais e os eventos sao conferidos na serial; uma captura verifica
 os pixels da tela. O teste tambem repete a digitacao sem trace para conferir
-a demonstracao usada no boot normal. `selftest=keyboard` habilita o trace
+a demonstracao isolada do driver. `selftest=keyboard` habilita o trace
 de eventos apenas na ISO de teste. Logs: `build/boot-keyboard-{bios|uefi}.log`
 e `build/boot-keyboard-echo-{bios|uefi}.log`.
+
+## Terminal basico
+
+O prompt `nexus>` executa comandos internos do kernel, sem programas externos
+ou sistema de arquivos. A entrada usa o teclado PS/2; a serial espelha a saida
+e o editor usa sequencias ANSI nessa saida. O terminal nao recebe comandos pela
+entrada serial. Comandos ignoram maiusculas/minusculas; argumentos preservam
+o texto digitado, sem interpretacao de aspas, pipes ou redirecionamentos.
+
+| Comando | Resultado |
+| --- | --- |
+| `help` | Lista comandos e atalhos |
+| `clear` | Limpa a tela e a saida do terminal serial |
+| `echo texto` | Exibe o argumento, que pode estar vazio |
+| `version` | Exibe a versao gerada a partir de `VERSION` |
+| `uptime` | Tempo desde a configuracao do PIT, com centesimos nominais |
+| `sysinfo` | Arquitetura, bootloader, timer e estado do teclado |
+| `history` | Lista os ultimos oito comandos, incluindo `history` |
+
+O editor aceita 127 caracteres, insercao na posicao do cursor, Left/Right,
+Home/End, Delete, Backspace e Tab (quatro espacos). Up/Down navegam pelo
+historico e restauram o rascunho ao voltar para a entrada atual. Ctrl+A/E
+movem ao inicio/fim; Ctrl+U apaga a linha; Ctrl+C cancela; Ctrl+L limpa a tela
+preservando o texto em edicao. O cursor e sublinhado, com rolagem horizontal
+da linha de entrada e rolagem vertical da saida. O historico vive apenas em RAM.
+
+Comandos inexistentes e argumentos invalidos apresentam uma mensagem e
+retornam ao prompt. Entradas alem do limite sao recusadas com aviso. A falta
+de eventos deixa a CPU em espera, mantendo as interrupcoes ativas.
+
+```sh
+make run
+make check-terminal
+```
+
+Os testes injetam comandos pelo teclado virtual em BIOS/UEFI e verificam
+respostas, versao, uptime, historico circular, restauracao de rascunho,
+insercao/Delete/Backspace, cancelamento, clear/Ctrl+L, espacos e limite de
+entrada. Capturas ficam em `build/screen-terminal-{bios|uefi}.ppm` e
+`build/screen-terminal-limits-{bios|uefi}.ppm`, com logs de mesmos sufixos.
 
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1

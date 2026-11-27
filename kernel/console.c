@@ -29,6 +29,9 @@ enum { MARGIN = 24, SCALE = 2, CELL_WIDTH = 12, CELL_HEIGHT = 18 };
 static struct limine_framebuffer *screen;
 static uint64_t cursor_x, cursor_y;
 static uint32_t background, foreground;
+static bool input_caret;
+static uint64_t caret_x, caret_y;
+static char caret_character;
 
 static uint32_t channel(uint8_t value, uint8_t size, uint8_t shift) {
     return ((uint32_t)value * ((1u << size) - 1) / 255) << shift;
@@ -47,6 +50,7 @@ static void pixel(uint64_t x, uint64_t y, uint32_t value) {
 }
 
 static void clear(void) {
+    input_caret = false;
     for (uint64_t y = 0; y < screen->height; ++y) {
         for (uint64_t x = 0; x < screen->width; ++x) {
             pixel(x, y, background);
@@ -138,12 +142,63 @@ static uint8_t glyph_row(char c, unsigned int row) {
 static void newline(void) {
     cursor_x = MARGIN;
     cursor_y += CELL_HEIGHT;
-    /* Reinicia a tela ao esgotar as linhas; scrolling vira uma etapa futura. */
-    if (cursor_y + CELL_HEIGHT > screen->height - MARGIN) clear();
+    uint64_t bottom = MARGIN + ((screen->height - 2 * MARGIN) / CELL_HEIGHT) * CELL_HEIGHT;
+    if (cursor_y + CELL_HEIGHT > bottom) {
+        for (uint64_t y = MARGIN; y < bottom; ++y) {
+            for (uint64_t x = MARGIN; x < screen->width - MARGIN; ++x) {
+                uint32_t value = background;
+                if (y + CELL_HEIGHT < bottom) {
+                    volatile uint32_t *row = (volatile uint32_t *)
+                        ((volatile uint8_t *)screen->address + (y + CELL_HEIGHT) * screen->pitch);
+                    value = row[x];
+                }
+                pixel(x, y, value);
+            }
+        }
+        cursor_y -= CELL_HEIGHT;
+    }
+}
+
+static void cell(uint64_t x_position, uint64_t y_position, char c) {
+    for (unsigned int y = 0; y < CELL_HEIGHT; ++y) {
+        uint8_t bits = y < 7 * SCALE ? glyph_row(c, y / SCALE) : 0;
+        for (unsigned int x = 0; x < CELL_WIDTH; ++x) {
+            bool set = x < 5 * SCALE && (bits & (1u << (4 - x / SCALE)));
+            pixel(x_position + x, y_position + y, set ? foreground : background);
+        }
+    }
+}
+
+void console_input(const char *prompt, const char *line, unsigned int cursor) {
+    if (!screen) return;
+    uint64_t columns = (screen->width - 2 * MARGIN) / CELL_WIDTH;
+    uint64_t prefix = 0, length = 0;
+    while (prompt[prefix] && prefix + 1 < columns) ++prefix;
+    while (line[length]) ++length;
+    if (cursor > length) cursor = length;
+    uint64_t available = columns - prefix - 1;
+    uint64_t offset = available && cursor >= available ? cursor - available + 1 : 0;
+    for (uint64_t i = 0; i < columns; ++i) cell(MARGIN + i * CELL_WIDTH, cursor_y, ' ');
+    for (uint64_t i = 0; i < prefix; ++i) cell(MARGIN + i * CELL_WIDTH, cursor_y, prompt[i]);
+    for (uint64_t i = 0; i < available && offset + i < length; ++i)
+        cell(MARGIN + (prefix + i) * CELL_WIDTH, cursor_y, line[offset + i]);
+    uint64_t caret = prefix + (available ? cursor - offset : 0);
+    caret_x = MARGIN + caret * CELL_WIDTH;
+    caret_y = cursor_y;
+    caret_character = available && cursor < length ? line[cursor] : ' ';
+    input_caret = true;
+    for (unsigned int y = 15; y < 17; ++y)
+        for (unsigned int x = 0; x < 5 * SCALE; ++x)
+            pixel(MARGIN + caret * CELL_WIDTH + x, cursor_y + y, foreground);
+    cursor_x = MARGIN + caret * CELL_WIDTH;
 }
 
 void console_write(const char *text) {
     if (!screen) return;
+    if (input_caret) {
+        cell(caret_x, caret_y, caret_character);
+        input_caret = false;
+    }
     while (*text) {
         char c = *text++;
         if (c == '\n') { newline(); continue; }
@@ -160,13 +215,7 @@ void console_write(const char *text) {
             continue;
         }
         if (cursor_x + CELL_WIDTH > screen->width - MARGIN) newline();
-        for (unsigned int y = 0; y < CELL_HEIGHT; ++y) {
-            uint8_t bits = y < 7 * SCALE ? glyph_row(c, y / SCALE) : 0;
-            for (unsigned int x = 0; x < CELL_WIDTH; ++x) {
-                bool set = x < 5 * SCALE && (bits & (1u << (4 - x / SCALE)));
-                pixel(cursor_x + x, cursor_y + y, set ? foreground : background);
-            }
-        }
+        cell(cursor_x, cursor_y, c);
         cursor_x += CELL_WIDTH;
     }
 }

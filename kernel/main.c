@@ -6,6 +6,7 @@
 #include <interrupts.h>
 #include <keyboard.h>
 #include <serial.h>
+#include <terminal.h>
 
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t requests_start[] = LIMINE_REQUESTS_START_MARKER;
@@ -165,6 +166,10 @@ void kmain(void) {
     if (boot_option("selftest=assert")) KASSERT(false);
 
     log_info("boot", "NexusOS: kernel inicial pronto. CPU em espera.");
-    if (keyboard_init()) keyboard_loop(boot_option("selftest=keyboard"));
+    if (keyboard_init()) {
+        if (boot_option("selftest=keyboard") || boot_option("selftest=keyboard-echo"))
+            keyboard_loop(boot_option("selftest=keyboard"));
+        terminal_run(info->name, info->version);
+    }
     interrupts_idle();
 }

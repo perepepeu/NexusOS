@@ -7,5 +7,6 @@
 bool console_init(struct limine_framebuffer_response *response);
 void console_write(const char *text);
 void console_clear(void);
+void console_input(const char *prompt, const char *line, unsigned int cursor);
 
 #endif
