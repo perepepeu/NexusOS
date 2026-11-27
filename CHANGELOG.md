@@ -2,6 +2,8 @@
 
 ## Em desenvolvimento
 
+- Segmentos de codigo/dados Ring 3 na GDT e RSP0 do TSS atualizado por thread.
+
 - Round Robin preemptivo com fila FIFO e quantum de 5 ticks/50 ms no PIT de 100 Hz.
 - Troca apos EOI, preservando GPRs, pilha e RFLAGS pelo frame IRQ/IRETQ.
 - Suspensao/retomada de threads e adiamento aninhado de preempcao.

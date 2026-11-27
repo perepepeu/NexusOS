@@ -12,6 +12,9 @@ enum { STACK_PAGES = 4, STACK_STRIDE = 6 * 4096 };
 static struct process_manager manager;
 static uint64_t stack_window;
 static int fail_after = -1;
+static void activate_context(unsigned int next) {
+    interrupts_set_kernel_stack(manager.tasks[next].stack ? manager.tasks[next].stack + STACK_PAGES * 4096 : 0);
+}
 extern void process_context_switch(uintptr_t *old, uintptr_t next);
 extern unsigned int process_register_test(void);
 
@@ -42,6 +45,7 @@ static void schedule(void) {
     KASSERT(next >= 0); /* Idle deve estar pronto quando todas as demais bloqueiam. */
     KASSERT(process_core_queue_valid(&manager));
     if ((unsigned int)next != old) {
+        activate_context((unsigned int)next);
         process_context_switch(&manager.tasks[old].context, manager.tasks[next].context);
         reap_stacks();
     }
@@ -49,6 +53,7 @@ static void schedule(void) {
 __attribute__((noreturn)) static void trampoline(void) {
     reap_stacks();
     struct thread_control_block *p = &manager.tasks[manager.current];
+    KASSERT(interrupts_kernel_stack() == p->stack + STACK_PAGES * 4096);
     irq_restore(1u << 9);
     p->entry(p->argument);
     thread_exit(0);
@@ -131,6 +136,7 @@ void process_preempt(void) {
     KASSERT(next >= 0 && process_core_queue_valid(&manager));
     if ((unsigned int)next != old) {
         ++manager.preemptions;
+        activate_context((unsigned int)next);
         /* O frame IRQ permanece na pilha anterior. Ao retomar, IRETQ restaura
          * todos os GPRs, RIP/RSP e RFLAGS. Nenhuma limpeza e feita no handler. */
         process_context_switch(&manager.tasks[old].context, manager.tasks[next].context);

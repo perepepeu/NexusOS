@@ -23,7 +23,7 @@ _Static_assert(sizeof(struct tss64) == 104, "Tamanho do TSS");
 _Static_assert(sizeof(struct idt_gate) == 16, "Tamanho do gate IDT");
 _Static_assert(offsetof(struct interrupt_frame, vector) == 120, "ABI Assembly/C");
 
-static uint64_t gdt[5] __attribute__((aligned(16)));
+static uint64_t gdt[7] __attribute__((aligned(16)));
 static struct tss64 tss;
 static struct idt_gate idt[256] __attribute__((aligned(16)));
 static uint8_t privilege_stack[16384] __attribute__((aligned(16)));
@@ -40,6 +40,8 @@ extern unsigned int interrupt_register_test(void);
 static void gdt_init(void) {
     gdt[1] = 0x00af9a000000ffff; /* Ring 0: codigo 64 bits. */
     gdt[2] = 0x00cf92000000ffff; /* Ring 0: dados. */
+    gdt[5] = 0x00affa000000ffff; /* Ring 3: codigo 64 bits (0x2b). */
+    gdt[6] = 0x00cff2000000ffff; /* Ring 3: dados (0x33). */
     tss.rsp[0] = (uintptr_t)(privilege_stack + sizeof privilege_stack);
     tss.ist[0] = (uintptr_t)(double_fault_stack + sizeof double_fault_stack);
     tss.ist[1] = (uintptr_t)(nmi_stack + sizeof nmi_stack);
@@ -52,6 +54,7 @@ static void gdt_init(void) {
     struct descriptor_pointer pointer = {sizeof gdt - 1, (uintptr_t)gdt};
     gdt_load(&pointer);
     log_info("gdt", "GDT e TSS carregadas. CS=0x08 DS=0x10 TR=0x18.");
+    log_info("gdt", "Segmentos Ring 3 prontos: CS=0x2b SS=0x33; bitmap de I/O negado.");
 }
 
 static void idt_init(void) {
@@ -196,6 +199,13 @@ void interrupts_init(uint64_t hhdm, uint64_t physical, uint64_t virtual) {
 }
 
 uint64_t timer_ticks(void) { return ticks; }
+void interrupts_set_kernel_stack(uint64_t top) {
+    uint64_t flags = irq_save();
+    KASSERT(!top || ((top >> 48) == 0xffff && !(top & 15)));
+    tss.rsp[0] = top ? top : (uintptr_t)(privilege_stack + sizeof privilege_stack);
+    irq_restore(flags);
+}
+uint64_t interrupts_kernel_stack(void) { return tss.rsp[0]; }
 
 void interrupts_enable_irq(unsigned int irq) {
     KASSERT(irq < 16);
@@ -230,6 +240,9 @@ void interrupts_selftest(void) {
     KASSERT(gdtr.base == (uintptr_t)gdt && gdtr.limit == sizeof gdt - 1);
     KASSERT(idtr.base == (uintptr_t)idt && idtr.limit == sizeof idt - 1);
     KASSERT(cs == 8 && ds == 16 && tr == 24);
+    KASSERT(((gdt[5] >> 40) & 255) == 0xfa && ((gdt[6] >> 40) & 255) == 0xf2);
+    KASSERT((gdt[5] & (1ull << 53)) && !(gdt[5] & (1ull << 54)));
+    KASSERT(tss.iomap == sizeof tss && tss.rsp[0] && !(tss.rsp[0] & 15));
     uint64_t before = breakpoints;
     KASSERT(interrupt_register_test());
     KASSERT(breakpoints == before + 1);
