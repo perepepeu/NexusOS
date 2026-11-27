@@ -6,5 +6,6 @@
 
 bool console_init(struct limine_framebuffer_response *response);
 void console_write(const char *text);
+void console_clear(void);
 
 #endif

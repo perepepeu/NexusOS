@@ -5,7 +5,7 @@ QEMU := qemu-system-x86_64
 QEMUFLAGS := -machine q35 -accel tcg -m 256M -boot d -net none -no-reboot
 OVMF ?= /usr/share/OVMF/OVMF_CODE_4M.fd
 DISPLAY_BACKEND ?= gtk
-KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o
+KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -44,6 +44,10 @@ run-uefi: iso
 
 check-kernel: iso
 	python3 scripts/check-kernel.py
+
+.PHONY: check-errors
+check-errors: iso
+	python3 scripts/check-kernel.py --errors
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader

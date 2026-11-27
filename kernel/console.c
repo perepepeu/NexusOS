@@ -56,6 +56,10 @@ static void clear(void) {
     cursor_y = MARGIN;
 }
 
+void console_clear(void) {
+    if (screen) clear();
+}
+
 static bool valid_channel(uint8_t size, uint8_t shift) {
     return size > 0 && size <= 8 && shift + size <= 32;
 }
@@ -98,6 +102,12 @@ static uint8_t glyph_row(char c, unsigned int row) {
         case '_': return row == 6 ? 31 : 0;
         case '/': return (uint8_t)(1u << (row * 4 / 6));
         case ';': return row == 2 || row == 5 ? 4 : row == 6 ? 8 : 0;
+        case '[': return row == 0 || row == 6 ? 14 : 8;
+        case ']': return row == 0 || row == 6 ? 14 : 2;
+        case '(': return row == 0 || row == 6 ? 2 : row == 1 || row == 5 ? 4 : 8;
+        case ')': return row == 0 || row == 6 ? 8 : row == 1 || row == 5 ? 4 : 2;
+        case '=': return row == 2 || row == 4 ? 31 : 0;
+        case '%': return row == 0 || row == 1 ? 25 : row == 5 || row == 6 ? 19 : (uint8_t)(1u << (row - 1));
         default: {
             static const uint8_t unknown[7] = {14,17,1,2,4,0,4};
             return unknown[row];

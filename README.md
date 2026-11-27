@@ -56,7 +56,8 @@ ou `make run-uefi DISPLAY_BACKEND=none`.
 Os comandos usam emulacao TCG, sem depender de permissoes KVM.
 O teste `make check-kernel` inicia as duas variantes sem interface grafica,
 verifica a resposta do protocolo Limine e a mensagem final do kernel na serial,
-e confirma que a VM permanece ativa ate ser encerrada pelo teste (20s por modo).
+e confirma que a VM permanece ativa apos a mensagem final. Cada boot tem um
+limite de 20s para apresentar o resultado.
 O teste captura a tela via QMP e verifica os pixels de fundo e texto do kernel.
 Logs ficam em `build/boot-bios.log` e `build/boot-uefi.log`; capturas ficam em
 `build/screen-bios.ppm` e `build/screen-uefi.ppm`.
@@ -77,11 +78,10 @@ do bootloader e escreve pela porta serial COM1 a 115200 baud:
 ```text
 NexusOS
 
-Tela: framebuffer pronto.
-NexusOS: iniciando kernel x86_64...
-Bootloader: Limine 12.11.1
-Protocolo Limine: OK
-NexusOS: kernel inicial pronto. CPU em espera.
+[2] [INFO] [video] Tela: framebuffer pronto.
+[3] [INFO] [boot] Bootloader: Limine 12.11.1
+[4] [INFO] [boot] Protocolo Limine: OK
+[5] [INFO] [boot] NexusOS: kernel inicial pronto. CPU em espera.
 ```
 
 Ao terminar, a CPU aguarda com `cli; hlt`, sem consumir um nucleo em loop ativo.
@@ -100,6 +100,59 @@ caracteres nao suportados usam `?`. O console suporta quebra de linha e ajuste
 automatico ao limite horizontal. Ao esgotar as linhas, limpa a tela e reinicia
 no topo. Se nao houver framebuffer compativel, a inicializacao continua pela
 serial com um aviso.
+
+## Logs e tratamento de erros
+
+`kernel/log.c` centraliza a saida na serial e no console. Cada registro tem
+um numero sequencial, nivel e modulo. O primeiro registro de boot aparece
+apenas na serial, antes da inicializacao da tela. Os niveis sao `DEBUG`,
+`INFO`, `WARN`, `ERROR` e `FATAL`; o filtro padrao e `INFO`.
+
+```c
+#include <log.h>
+#include <panic.h>
+
+log_info("memoria", "Paginas livres: %u", 128u);
+log_warn("video", "Modo opcional indisponivel; usando alternativa.");
+log_error("driver", "Operacao falhou: %x", 0x10u);
+KASSERT(ponteiro != 0);
+```
+
+O formatador sem libc suporta `%s`, `%u` e `%x` para `unsigned int`, `%p` para
+`void *` e `%%`. Strings nulas aparecem como `(null)`. `log_set_level` altera o
+filtro; `cmdline: log=debug` na entrada Limine habilita diagnostico detalhado.
+Avisos e erros recuperaveis registram a falha e retornam ao chamador.
+O chamador continua responsavel por escolher uma alternativa ou propagar o erro.
+
+`PANIC(codigo, mensagem)` registra uma falha fatal com arquivo e linha. A tela
+e limpa para destacar o diagnostico; o historico permanece na serial. A CPU
+para com interrupcoes desabilitadas, mantendo a mensagem visivel. `KASSERT`
+permanece ativo em todas as compilacoes e encaminha falhas ao mesmo handler.
+Uma reentrada no handler usa uma mensagem minima na serial.
+
+| Codigo | Erro |
+| --- | --- |
+| 1 | Revisao do protocolo Limine incompativel |
+| 2 | Identificacao do bootloader ausente |
+| 3 | Falha fatal injetada pelo autoteste |
+| 4 | Assert do kernel falhou |
+
+```sh
+make check-kernel  # Boot normal, BIOS e UEFI
+make check-errors  # Logs, erro recuperavel, panic e assert, BIOS e UEFI
+```
+
+Os testes de erro geram ISOs separadas com `selftest=logs`, `selftest=panic`
+ou `selftest=assert` na linha de comando do kernel. A ISO normal permanece
+sem injecao de falhas. Os testes verificam niveis, filtro, formatacao, sequencia,
+arquivo/linha, continuidade apos erro recuperavel e parada apos erro fatal.
+Logs e capturas ficam em `build/boot-{cenario}-{bios|uefi}.log` e
+`build/screen-{cenario}-{bios|uefi}.ppm`.
+
+Os registros sao emitidos imediatamente, sem arquivo de log ou buffer persistente.
+O logger opera no contexto atual de uma CPU com interrupcoes desabilitadas.
+Excecoes de hardware (como page fault e divisao por zero) ainda dependem da
+implementacao futura da IDT e de seus handlers.
 
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1
