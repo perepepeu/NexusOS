@@ -1,6 +1,6 @@
 # Historico de versoes
 
-## Em desenvolvimento
+## 0.1 - 2026-11-26
 
 - Comandos reboot e shutdown com reset ACPI/PS2 e desligamento ACPI S5.
 - Validacao das tabelas ACPI e leitor limitado de pacotes AML constantes.

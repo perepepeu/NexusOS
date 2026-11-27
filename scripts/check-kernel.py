@@ -228,7 +228,8 @@ def boot(mode, scenario, image, firmware):
                      b"code=148 down=0 mods=0 char=0", b"code=1e down=1 mods=1 char=65"]
     if scenario == "terminal":
         required += [b"Comandos: help clear echo version uptime sysinfo history",
-                     b"NexusOS 0.0.1 (x86_64)", b"Arquitetura: x86_64", b"Timer: PIT 100 Hz",
+                     f"NexusOS {Path('VERSION').read_text().strip()} (x86_64)".encode(),
+                     b"Arquitetura: x86_64", b"Timer: PIT 100 Hz",
                      b"\r\nola nexus\r\n", b"\r\nlimpo\r\n", b"\r\ndraft\r\n",
                      b"Comando desconhecido: naoexiste.", b"Uso: help (sem argumentos).",
                      b"\r\nmantido\r\n", b"^C"]
