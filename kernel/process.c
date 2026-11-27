@@ -7,12 +7,18 @@
 #include <log.h>
 #include <process_resources.h>
 #include <heap.h>
+#include <address_space.h>
+#include <user_mode.h>
 
 enum { STACK_PAGES = 4, STACK_STRIDE = 6 * 4096 };
 static struct process_manager manager;
+static struct address_space user_spaces[PROCESS_MAX];
 static uint64_t stack_window;
 static int fail_after = -1;
 static void activate_context(unsigned int next) {
+    int pcb = process_core_find(&manager, manager.tasks[next].info.pid); KASSERT(pcb >= 0);
+    struct address_space *space = manager.processes[pcb].space;
+    address_space_activate(space ? space->root : 0);
     interrupts_set_kernel_stack(manager.tasks[next].stack ? manager.tasks[next].stack + STACK_PAGES * 4096 : 0);
 }
 extern void process_context_switch(uintptr_t *old, uintptr_t next);
@@ -32,7 +38,12 @@ static void reap_stacks(void) {
         if (i != manager.current && manager.tasks[i].info.state == PROCESS_TERMINATED) release_stack(&manager.tasks[i]);
     for (unsigned int i = 0; i < PROCESS_MAX; ++i)
         if (manager.processes[i].used && manager.processes[i].info.state == PROCESS_TERMINATED &&
-                manager.processes[i].info.pid != process_current_pid()) process_resources_reap(manager.processes[i].info.pid);
+                manager.processes[i].info.pid != process_current_pid()) {
+            process_resources_reap(manager.processes[i].info.pid);
+            if (manager.processes[i].space) {
+                KASSERT(address_space_destroy(manager.processes[i].space)); manager.processes[i].space = 0;
+            }
+        }
 }
 bool process_owner_alive(uint64_t pid) {
     int pcb = process_core_find(&manager, pid);
@@ -123,7 +134,11 @@ static uint64_t create(const char *name, void (*entry)(void *), void *argument, 
     irq_restore(flags); return id;
 }
 uint64_t process_create(const char *name, void (*entry)(void *), void *argument) { return create(name, entry, argument, false); }
-uint64_t thread_create(const char *name, void (*entry)(void *), void *argument) { return create(name, entry, argument, true); }
+uint64_t thread_create(const char *name, void (*entry)(void *), void *argument) {
+    uint64_t flags = irq_save(); int pcb = process_core_find(&manager, process_current_pid());
+    bool user = pcb >= 0 && manager.processes[pcb].info.user_mode; irq_restore(flags);
+    return user ? 0 : create(name, entry, argument, true);
+}
 uint64_t process_current_pid(void) { return manager.ready ? manager.tasks[manager.current].info.pid : 0; }
 uint64_t thread_current_tid(void) { return manager.ready ? manager.tasks[manager.current].info.tid : 0; }
 void process_on_tick(uint64_t now) { process_core_tick(&manager, now); }
@@ -205,11 +220,13 @@ bool process_kill(uint64_t pid, int status) {
     bool result = pid != process_current_pid() && process_core_finish(&manager, pid, status);
     reap_stacks(); irq_restore(flags); return result;
 }
-__attribute__((noreturn)) void process_exit(int status) {
-    uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
+__attribute__((noreturn)) static void terminate_current(int status) {
     KASSERT(!manager.tasks[manager.current].preempt_depth);
     KASSERT(manager.ready && process_core_finish(&manager, process_current_pid(), status));
     schedule(); PANIC(ERR_PROCESS, "Processo encerrado voltou a executar.");
+}
+__attribute__((noreturn)) void process_exit(int status) {
+    uint64_t flags = irq_save(); KASSERT(flags & (1u << 9)); terminate_current(status);
 }
 __attribute__((noreturn)) void thread_exit(int status) {
     uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
@@ -262,6 +279,83 @@ size_t thread_snapshot(struct thread_info *out, size_t capacity) {
     for (unsigned int i = 0; i < THREAD_MAX && count < capacity; ++i)
         if (manager.tasks[i].info.state != PROCESS_UNUSED) out[count++] = manager.tasks[i].info;
     irq_restore(flags); return count;
+}
+
+extern void user_mode_enter(uint64_t entry, uint64_t stack, uint64_t argument) __attribute__((noreturn));
+static void user_start(void *argument) {
+    unsigned int slot = (unsigned int)(uintptr_t)argument;
+    uint64_t flags = irq_save(); (void)flags;
+    KASSERT(slot < PROCESS_MAX && manager.processes[slot].info.pid == process_current_pid());
+    struct process_control_block *p = &manager.processes[slot];
+    KASSERT(p->space && p->space->ready && p->info.user_mode);
+    user_mode_enter(p->user_entry, p->user_stack, p->user_argument);
+}
+uint64_t process_create_user(const char *name, const void *image, size_t bytes, size_t entry_offset, uint64_t argument) {
+    if (!manager.ready || !name || !*name || !image || !bytes || bytes > 65536 || entry_offset >= bytes) return 0;
+    process_preempt_disable(); uint64_t flags = irq_save();
+    int slot = -1;
+    for (unsigned int i = 1; i < PROCESS_MAX; ++i) if (!manager.processes[i].used) { slot = (int)i; break; }
+    if (slot < 0) { irq_restore(flags); process_preempt_enable(); return 0; }
+    struct address_space *space = &user_spaces[slot];
+    bool ok = address_space_create(space);
+    for (size_t i = 0; ok && i < (bytes + 4095) / 4096; ++i) ok = address_space_alloc(space, USER_CODE_BASE + i * 4096, VMM_EXEC) != 0;
+    if (ok) ok = address_space_alloc(space, USER_DATA_BASE, VMM_WRITE) != 0;
+    for (unsigned int i = 0; ok && i < 4; ++i) ok = address_space_alloc(space, USER_STACK_BASE + i * 4096, VMM_WRITE) != 0;
+    if (ok) ok = address_space_copy(space, USER_CODE_BASE, (void *)image, bytes, true);
+    irq_restore(flags);
+    uint64_t pid = ok ? process_create(name, user_start, (void *)(uintptr_t)slot) : 0;
+    flags = irq_save();
+    if (pid) {
+        KASSERT(process_core_find(&manager, pid) == slot);
+        struct process_control_block *p = &manager.processes[slot];
+        p->space = space; p->info.user_mode = true;
+        p->user_entry = USER_CODE_BASE + entry_offset; p->user_stack = USER_STACK_TOP - 8; p->user_argument = argument;
+    } else if (space->ready) KASSERT(address_space_destroy(space));
+    irq_restore(flags); process_preempt_enable(); return pid;
+}
+bool process_user_syscall(struct interrupt_frame *frame) {
+    int slot = process_core_find(&manager, process_current_pid());
+    if ((frame->cs & 3) != 3 || slot < 0 || !manager.processes[slot].info.user_mode) return false;
+    struct thread_control_block *t = &manager.tasks[manager.current];
+    KASSERT((uintptr_t)frame >= t->stack && (uintptr_t)(frame + 1) <= t->stack + STACK_PAGES * 4096);
+    KASSERT(interrupts_kernel_stack() == t->stack + STACK_PAGES * 4096);
+    switch (frame->rax) {
+        case USER_SYSCALL_EXIT: terminate_current((int)frame->rdi);
+        case USER_SYSCALL_YIELD: t->info.state = PROCESS_READY; schedule(); frame->rax = 0; break;
+        case USER_SYSCALL_GETPID: frame->rax = process_current_pid(); break;
+        case USER_SYSCALL_GETTID: frame->rax = thread_current_tid(); break;
+        case USER_SYSCALL_TICKS: frame->rax = timer_ticks(); break;
+        default: frame->rax = (uint64_t)-38; break;
+    }
+    return true;
+}
+extern const unsigned char user_valid_start[], user_valid_end[];
+uint64_t process_user_demo(void) {
+    return process_create_user("user-demo", user_valid_start, (uintptr_t)user_valid_end - (uintptr_t)user_valid_start, 0, 42);
+}
+void user_mode_selftest(void) {
+    struct pmm_stats before, after; struct vmm_stats vb, va;
+    pmm_get_stats(&before); vmm_get_stats(&vb);
+    size_t bytes = (uintptr_t)user_valid_end - (uintptr_t)user_valid_start;
+    KASSERT(!process_create_user("bad", user_valid_start, 0, 0, 0));
+    process_preempt_disable();
+    uint64_t a = process_create_user("user-a", user_valid_start, bytes, 0, 17);
+    uint64_t b = process_create_user("user-b", user_valid_start, bytes, 0, 29);
+    KASSERT(a && b);
+    struct address_space *sa = manager.processes[process_core_find(&manager, a)].space;
+    struct address_space *sb = manager.processes[process_core_find(&manager, b)].space;
+    struct vmm_mapping ma, mb;
+    KASSERT(sa->root != sb->root && sa->root != address_space_kernel_root());
+    KASSERT(address_core_translate(sa, USER_DATA_BASE, &ma) && address_core_translate(sb, USER_DATA_BASE, &mb) && ma.physical != mb.physical);
+    KASSERT(address_core_translate(sa, USER_CODE_BASE, &ma) && ma.flags == (VMM_USER | VMM_EXEC));
+    KASSERT(address_core_translate(sa, (uintptr_t)user_mode_selftest, &ma) && !(ma.flags & VMM_USER));
+    process_preempt_enable();
+    int status; KASSERT(process_wait(a, &status) && status == 17);
+    KASSERT(process_wait(b, &status) && status == 29);
+    pmm_get_stats(&after); vmm_get_stats(&va);
+    KASSERT(before.free_pages == after.free_pages && before.allocated_pages == after.allocated_pages &&
+        vb.mapped_pages == va.mapped_pages && vb.table_pages == va.table_pages);
+    log_info("test", "Ring 3: CPL/IOPL, TSS, CR3 privados, dados isolados, PIT, INT80 e limpeza OK.");
 }
 
 static volatile unsigned int order[12], order_count;

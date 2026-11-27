@@ -13,6 +13,7 @@
 #include <vmm.h>
 #include <heap.h>
 #include <process.h>
+#include <user_mode.h>
 
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t requests_start[] = LIMINE_REQUESTS_START_MARKER;
@@ -222,6 +223,7 @@ void kmain(void) {
         (unsigned long long)process_maps.table_pages);
     if (boot_option("selftest=processes")) process_selftest(false);
     if (boot_option("selftest=scheduler")) scheduler_selftest();
+    if (boot_option("selftest=user")) user_mode_selftest();
     if (boot_option("selftest=process-guard")) process_selftest(true);
     log_info("boot", "NexusOS: kernel inicial pronto. CPU em espera.");
     power_init(rsdp.response && !boot_option("selftest=power-fallback") ? rsdp.response->address : 0,

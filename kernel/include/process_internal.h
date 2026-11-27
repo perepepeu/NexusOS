@@ -1,7 +1,13 @@
 #ifndef NEXUS_PROCESS_INTERNAL_H
 #define NEXUS_PROCESS_INTERNAL_H
 #include <process.h>
-struct process_control_block { struct process_info info; bool used, system; };
+struct address_space;
+struct process_control_block {
+    struct process_info info;
+    bool used, system;
+    struct address_space *space;
+    uint64_t user_entry, user_stack, user_argument;
+};
 struct thread_control_block {
     struct thread_info info;
     uint64_t sleep_start, sleep_ticks, waiting_for;

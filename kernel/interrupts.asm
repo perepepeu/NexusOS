@@ -53,11 +53,21 @@ interrupt_common:
     push r14
     push r15
     cld
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
     mov rdi, rsp
     mov rbx, rsp
     and rsp, -16
     call interrupt_dispatch
     mov rsp, rbx
+    mov ax, 0x10
+    test byte [rsp+144], 3 ; CS no interrupt_frame.
+    jz .segments_ready
+    mov ax, 0x33
+.segments_ready:
+    mov ds, ax
+    mov es, ax
     pop r15
     pop r14
     pop r13

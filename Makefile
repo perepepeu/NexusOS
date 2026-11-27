@@ -12,6 +12,7 @@ KERNEL_OBJECTS += build/kernel/process_core.o build/kernel/process.o build/kerne
 KERNEL_OBJECTS += build/kernel/runtime.o
 KERNEL_OBJECTS += build/kernel/resource_core.o build/kernel/process_resources.o
 KERNEL_OBJECTS += build/kernel/address_space_core.o build/kernel/address_space.o
+KERNEL_OBJECTS += build/kernel/user_mode.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -45,6 +46,10 @@ build/kernel/interrupt_stubs.o: kernel/interrupts.asm toolchain.mk Makefile | ch
 	$(AS) $(ASFLAGS) $< -o $@
 
 build/kernel/process_switch.o: kernel/process_switch.asm toolchain.mk Makefile | check-kernel-arch
+	mkdir -p $(@D)
+	$(AS) $(ASFLAGS) $< -o $@
+
+build/kernel/user_mode.o: kernel/user_mode.asm toolchain.mk Makefile | check-kernel-arch
 	mkdir -p $(@D)
 	$(AS) $(ASFLAGS) $< -o $@
 
@@ -161,6 +166,10 @@ check-address-space-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/address_space_test.c kernel/address_space_core.c -o build/tests/address-space
 	build/tests/address-space
+
+.PHONY: check-user
+check-user: iso check-address-space-unit
+	python3 scripts/check-kernel.py --user
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader

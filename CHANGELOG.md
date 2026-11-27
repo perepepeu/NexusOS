@@ -2,6 +2,10 @@
 
 ## Em desenvolvimento
 
+- Execucao real em Ring 3 por IRETQ, entrada INT80 e troca de CR3 por processo.
+- Chamadas exit/yield/getpid/gettid/ticks; comando spawnuser e exibicao R0/R3 em ps.
+- Teste de dois processos no mesmo endereco virtual com dados distintos e limpeza integral.
+
 - Espacos privados de quatro niveis, paginas USER/RX/RW-NX e metade alta supervisor compartilhada.
 - Construcao limitada, copia pelo loader, rollback OOM e destruicao de espacos inativos.
 

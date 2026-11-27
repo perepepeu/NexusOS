@@ -6,6 +6,7 @@
 #include <panic.h>
 #include <keyboard.h>
 #include <process.h>
+#include <user_mode.h>
 
 struct descriptor_pointer { uint16_t limit; uint64_t base; } __attribute__((packed));
 struct tss64 {
@@ -22,6 +23,7 @@ struct idt_gate {
 _Static_assert(sizeof(struct tss64) == 104, "Tamanho do TSS");
 _Static_assert(sizeof(struct idt_gate) == 16, "Tamanho do gate IDT");
 _Static_assert(offsetof(struct interrupt_frame, vector) == 120, "ABI Assembly/C");
+_Static_assert(offsetof(struct interrupt_frame, cs) == 144, "ABI retorno Ring 3");
 
 static uint64_t gdt[7] __attribute__((aligned(16)));
 static struct tss64 tss;
@@ -63,7 +65,7 @@ static void idt_init(void) {
         idt[i] = (struct idt_gate){
             .low = address, .selector = 0x08,
             .ist = i == 8 ? 1 : i == 2 ? 2 : 0,
-            .attributes = 0x8e, .middle = address >> 16, .high = address >> 32,
+            .attributes = i == 0x80 ? 0xee : 0x8e, .middle = address >> 16, .high = address >> 32,
         };
     }
     struct descriptor_pointer pointer = {sizeof idt - 1, (uintptr_t)idt};
@@ -85,6 +87,20 @@ static uint64_t read_msr(uint32_t index) {
 static void write_msr(uint32_t index, uint64_t value) {
     __asm__ volatile ("wrmsr" : : "a"((uint32_t)value), "d"((uint32_t)(value >> 32)),
         "c"(index) : "memory");
+}
+static void user_cpu_policy(void) {
+    /* INT 0x80 e a unica entrada implementada. Impede atalhos nao configurados
+     * e uso de estado FPU/TLS que o escalonador ainda nao salva. */
+    write_msr(0xc0000080u, read_msr(0xc0000080u) & ~1ull); /* EFER.SCE=0. */
+    write_msr(0xc0000100u, 0); write_msr(0xc0000101u, 0); write_msr(0xc0000102u, 0);
+    uint32_t a, b, c, d;
+    __asm__ volatile ("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(1), "c"(0));
+    if (d & (1u << 11)) write_msr(0x174, 0); /* SYSENTER_CS=0. */
+    uint64_t cr0, cr4;
+    __asm__ volatile ("mov %%cr0, %0; mov %%cr4, %1" : "=r"(cr0), "=r"(cr4));
+    cr0 |= 1u << 3; /* TS: #NM em vez de compartilhar FPU/SIMD entre processos. */
+    cr4 &= ~((1ull << 16) | (1ull << 8)); /* Sem FSGSBASE/RDPMC em CPL3. */
+    __asm__ volatile ("mov %0, %%cr0; mov %1, %%cr4" : : "r"(cr0), "r"(cr4) : "memory");
 }
 
 static void legacy_route(uint64_t hhdm, uint64_t physical, uint64_t virtual) {
@@ -151,6 +167,7 @@ static bool spurious(unsigned int irq) {
 
 void interrupt_dispatch(struct interrupt_frame *frame) {
     if (frame->vector == 255) return; /* Spurious LAPIC: nao envia EOI. */
+    if (frame->vector == 0x80 && process_user_syscall(frame)) return;
     if (frame->vector >= 32 && frame->vector < 48) {
         unsigned int irq = frame->vector - 32;
         if (spurious(irq)) return;
@@ -192,6 +209,7 @@ void interrupts_init(uint64_t hhdm, uint64_t physical, uint64_t virtual) {
     __asm__ volatile ("cli" : : : "memory");
     gdt_init();
     idt_init();
+    user_cpu_policy();
     legacy_route(hhdm, physical, virtual);
     pic_init();
     __asm__ volatile ("sti" : : : "memory");

@@ -13,6 +13,7 @@ struct process_info {
     uint64_t pid, parent, cpu_ticks;
     size_t threads;
     size_t resources;
+    bool user_mode;
     enum process_state state;
     enum process_block_reason blocked_on;
     int exit_status;
