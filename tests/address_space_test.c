@@ -52,7 +52,35 @@ int main(void) {
     assert(!address_core_copy(&a, USER_ADDRESS_END - 1, result, 2, false));
     assert(address_core_alloc(&a, USER_DATA_BASE, VMM_WRITE));
     assert(address_core_translate(&a, USER_DATA_BASE, &mapping) && mapping.flags == (VMM_USER | VMM_WRITE));
-    assert(!address_core_copy(&a, USER_DATA_BASE + 4095, result, 2, true));
+    assert(address_core_user_check(&a, USER_CODE_BASE, sizeof one, false));
+    assert(!address_core_user_check(&a, USER_CODE_BASE, sizeof one, true));
+    assert(!address_core_user_copy(&a, USER_CODE_BASE, two, sizeof two, true));
+    assert(!address_core_user_check(&a, 0, 1, false));
+    assert(!address_core_user_check(&a, 0xffffff8000000000ull, 1, false));
+    assert(!address_core_user_check(&a, 0x800000000000ull, 1, false));
+    assert(!address_core_user_check(&a, USER_DATA_BASE, (size_t)-1, false));
+    assert(address_core_user_check(&a, (uint64_t)-1, 0, true));
+    assert(address_core_user_copy(&a, (uint64_t)-1, 0, 0, true));
+    assert(address_core_user_copy(&a, USER_DATA_BASE + 4095, one, 1, true));
+    char attempt[] = {'Z', 'X'};
+    assert(!address_core_user_copy(&a, USER_DATA_BASE + 4095, attempt, 2, true));
+    memset(result, 0x55, sizeof result);
+    assert(!address_core_user_copy(&a, USER_DATA_BASE + 4095, result, 2, false));
+    for (size_t i = 0; i < sizeof result; ++i) assert(result[i] == 0x55);
+    char preserved;
+    assert(address_core_user_copy(&a, USER_DATA_BASE + 4095, &preserved, 1, false) && preserved == one[0]);
+    assert(address_core_alloc(&a, USER_DATA_BASE + 4096, VMM_WRITE));
+    assert(address_core_user_copy(&a, USER_DATA_BASE + 4095, two, sizeof two, true));
+    assert(address_core_user_copy(&a, USER_DATA_BASE + 4095, result, sizeof two, false) && !memcmp(result, two, sizeof two));
+    uint64_t *pml4 = table(0, a.root), parent = pml4[0];
+    pml4[0] &= ~4ull;
+    assert(!address_core_user_check(&a, USER_DATA_BASE, 1, false));
+    pml4[0] = parent & ~2ull;
+    assert(address_core_user_check(&a, USER_DATA_BASE, 1, false));
+    assert(!address_core_user_check(&a, USER_DATA_BASE, 1, true)); pml4[0] = parent;
+    /* Agora a segunda pagina existe; a copia privilegiada abaixo deve cruzar
+     * um limite ainda nao mapeado. */
+    assert(!address_core_copy(&a, USER_DATA_BASE + 8191, result, 2, true));
     assert(!address_core_destroy(&a, a.root) && a.ready);
     assert(address_core_destroy(&a, 4096) && address_core_destroy(&b, 4096) && count() == 2);
     assert(!address_core_destroy(&a, 4096));

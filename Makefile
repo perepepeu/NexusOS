@@ -49,9 +49,13 @@ build/kernel/process_switch.o: kernel/process_switch.asm toolchain.mk Makefile |
 	mkdir -p $(@D)
 	$(AS) $(ASFLAGS) $< -o $@
 
-build/kernel/user_mode.o: kernel/user_mode.asm toolchain.mk Makefile | check-kernel-arch
+build/include/syscall_abi.inc: kernel/include/syscall_abi.h scripts/gen-syscall-abi.py
 	mkdir -p $(@D)
-	$(AS) $(ASFLAGS) $< -o $@
+	python3 scripts/gen-syscall-abi.py $< $@
+
+build/kernel/user_mode.o: kernel/user_mode.asm toolchain.mk Makefile build/include/syscall_abi.inc | check-kernel-arch
+	mkdir -p $(@D)
+	$(AS) $(ASFLAGS) -Ibuild/include/ $< -o $@
 
 build/kernel.elf: $(KERNEL_OBJECTS) kernel/linker.ld | check-kernel-arch
 	$(LD) $(LDFLAGS) -z max-page-size=0x1000 -T kernel/linker.ld $(KERNEL_OBJECTS) -o $@

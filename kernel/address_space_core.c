@@ -91,6 +91,24 @@ bool address_core_copy(struct address_space *s, uint64_t va, void *buffer, size_
     }
     return true;
 }
+bool address_core_user_check(struct address_space *s, uint64_t va, size_t bytes, bool writable) {
+    if (!s || !s->ready) return false;
+    if (!bytes) return true;
+    if (va < 4096 || va >= USER_ADDRESS_END || bytes > USER_ADDRESS_END - va) return false;
+    while (bytes) {
+        struct vmm_mapping mapping;
+        if (!address_core_translate(s, va, &mapping) || !(mapping.flags & VMM_USER) ||
+                (writable && !(mapping.flags & VMM_WRITE))) return false;
+        size_t count = 4096 - (va & 4095);
+        if (count > bytes) count = bytes;
+        va += count; bytes -= count;
+    }
+    return true;
+}
+bool address_core_user_copy(struct address_space *s, uint64_t va, void *buffer, size_t bytes, bool to_user) {
+    if ((bytes && !buffer) || !address_core_user_check(s, va, bytes, to_user)) return false;
+    return !bytes || address_core_copy(s, va, buffer, bytes, to_user);
+}
 static void destroy_table(struct address_space *s, uint64_t physical, unsigned int level) {
     uint64_t *table = s->ops.table(s->context, physical);
     for (unsigned int i = 0; i < 512; ++i) if (table[i] & PRESENT) {

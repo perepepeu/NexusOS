@@ -2,6 +2,9 @@
 
 ## Em desenvolvimento
 
+- ABI v1 das syscalls em cabecalho compartilhado com programas C e constantes NASM geradas.
+- Validacao integral de buffers USER, permissoes de escrita, limites e overflow antes da copia.
+
 - Excecoes em CPL3 encerram somente o PID culpado; CPL0 e falhas criticas continuam fatais.
 - 26 probes reais de protecao, incluindo kernel/HHDM, RX/NX, I/O, Ring 0 e pilha invalida.
 - Validacao de seletores, RIP/RSP e flags antes do retorno a Ring 3, apos EOI nas IRQs.

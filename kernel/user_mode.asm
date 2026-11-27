@@ -1,4 +1,5 @@
 bits 64
+%include "syscall_abi.inc"
 section .text
 global user_mode_enter
 ; RDI=RIP, RSI=RSP de usuario, RDX=argumento escalar. Nunca retorna.
@@ -54,31 +55,31 @@ user_valid_start:
     cmp qword [rcx], 0 ; Paginas novas nao podem revelar dados de um PID anterior.
     jne .bad
     mov [rcx], rbx
-    mov eax, 2
+    mov eax, USER_SYSCALL_GETPID
     int 0x80
     cmp rax, 1
     jbe .bad
-    mov eax, 3
+    mov eax, USER_SYSCALL_GETTID
     int 0x80
     test rax, rax
     jz .bad
     mov rax, -1
     int 0x80
-    cmp rax, -38
+    cmp rax, -USER_ENOSYS
     jne .bad
-    mov eax, 4
+    mov eax, USER_SYSCALL_TICKS
     int 0x80
     mov rbp, rax
 .busy:
     mov rcx, 0x600000
     cmp [rcx], rbx
     jne .bad
-    mov eax, 4
+    mov eax, USER_SYSCALL_TICKS
     int 0x80
     sub rax, rbp
     cmp rax, 17
     jb .busy
-    mov eax, 1
+    mov eax, USER_SYSCALL_YIELD
     int 0x80
     test rax, rax
     jnz .bad
@@ -174,7 +175,7 @@ PROBE badstack
 END_PROBE badstack
 PROBE badreturn
     mov rsp, 0x0100000000000000
-    mov eax, 2
+    mov eax, USER_SYSCALL_GETPID
     int 0x80
 END_PROBE badreturn
 PROBE badirq

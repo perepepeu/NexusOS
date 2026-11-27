@@ -17,6 +17,12 @@ bool address_space_destroy(struct address_space *s) {
     __asm__ volatile ("mov %%cr3, %0" : "=r"(active));
     bool ok = address_core_destroy(s, active & 0x000ffffffffff000ull); irq_restore(flags); return ok;
 }
+bool address_user_check(struct address_space *s, uint64_t va, size_t bytes, bool writable) {
+    uint64_t flags = irq_save(); bool ok = address_core_user_check(s, va, bytes, writable); irq_restore(flags); return ok;
+}
+bool address_user_copy(struct address_space *s, uint64_t va, void *buffer, size_t bytes, bool to_user) {
+    uint64_t flags = irq_save(); bool ok = address_core_user_copy(s, va, buffer, bytes, to_user); irq_restore(flags); return ok;
+}
 uint64_t address_space_kernel_root(void) {
     uint64_t root, mask; struct vmm_ops ops;
     KASSERT(vmm_kernel_context(&ops, &root, &mask)); return root;

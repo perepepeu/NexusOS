@@ -19,6 +19,12 @@ bool address_core_create(struct address_space *, const struct vmm_ops *, void *,
 uint64_t address_core_alloc(struct address_space *, uint64_t va, unsigned int flags);
 bool address_core_translate(struct address_space *, uint64_t va, struct vmm_mapping *out);
 bool address_core_copy(struct address_space *, uint64_t va, void *buffer, size_t bytes, bool to_user);
+/* Interface de syscall: preflight integral, USER em todos os niveis e WRITE
+ * obrigatorio para copyout. Comprimento zero ignora o ponteiro. */
+bool address_core_user_check(struct address_space *, uint64_t va, size_t bytes, bool writable);
+bool address_core_user_copy(struct address_space *, uint64_t va, void *buffer, size_t bytes, bool to_user);
+bool address_user_check(struct address_space *, uint64_t va, size_t bytes, bool writable);
+bool address_user_copy(struct address_space *, uint64_t va, void *buffer, size_t bytes, bool to_user);
 bool address_core_destroy(struct address_space *, uint64_t active_root);
 /* Wrappers kernel: serializados com CLI em uma CPU. Copia e acesso sao do
  * loader/debugger confiavel, nao uma interface acessivel ao usuario. */
