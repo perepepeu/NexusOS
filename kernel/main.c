@@ -3,6 +3,7 @@
 #include <console.h>
 #include <log.h>
 #include <panic.h>
+#include <interrupts.h>
 
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t requests_start[] = LIMINE_REQUESTS_START_MARKER;
@@ -26,6 +27,13 @@ __attribute__((used, section(".limine_requests")))
 static volatile struct limine_executable_cmdline_request command_line = {
     .id = LIMINE_EXECUTABLE_CMDLINE_REQUEST_ID,
     .revision = 0,
+};
+
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_hhdm_request hhdm = {.id = LIMINE_HHDM_REQUEST_ID};
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_executable_address_request executable_address = {
+    .id = LIMINE_EXECUTABLE_ADDRESS_REQUEST_ID,
 };
 
 __attribute__((used, section(".limine_requests_end")))
@@ -68,6 +76,28 @@ void kmain(void) {
     log_info("boot", "Protocolo Limine: OK");
     if (boot_option("log=debug")) log_set_level(LOG_DEBUG);
     log_debug("boot", "Diagnostico detalhado habilitado.");
+    KASSERT(hhdm.response && executable_address.response);
+    interrupts_init(hhdm.response->offset, executable_address.response->physical_base,
+        executable_address.response->virtual_base);
+    timer_wait(3);
+    log_info("irq", "Timer IRQ0 confirmado: ticks=%u", (unsigned int)timer_ticks());
+
+    if (boot_option("selftest=interrupts")) interrupts_selftest();
+    if (boot_option("selftest=doublefault")) interrupts_test_double_fault();
+    if (boot_option("selftest=divide")) {
+        __asm__ volatile ("xor %%edx, %%edx; mov $1, %%eax; xor %%ecx, %%ecx; div %%ecx"
+            : : : "rax", "rcx", "rdx", "cc");
+        PANIC(ERR_SELFTEST, "Divisao por zero nao gerou excecao.");
+    }
+    if (boot_option("selftest=opcode")) __asm__ volatile ("ud2");
+    if (boot_option("selftest=pagefault")) {
+        (void)*(volatile uint64_t *)(uintptr_t)0x400000000000;
+        PANIC(ERR_SELFTEST, "Endereco de teste deveria estar ausente.");
+    }
+    if (boot_option("selftest=protection")) {
+        __asm__ volatile ("mov $0xfff8, %%ax; mov %%ax, %%ds" : : : "rax");
+        PANIC(ERR_SELFTEST, "Seletor invalido nao gerou excecao.");
+    }
 
     if (boot_option("selftest=logs")) {
         log_debug("test", "DEBUG oculto");
@@ -86,5 +116,5 @@ void kmain(void) {
     if (boot_option("selftest=assert")) KASSERT(false);
 
     log_info("boot", "NexusOS: kernel inicial pronto. CPU em espera.");
-    kernel_halt();
+    interrupts_idle();
 }

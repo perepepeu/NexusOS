@@ -1,5 +1,13 @@
 # Historico de versoes
 
+## Em desenvolvimento
+
+- GDT propria, TSS e pilhas IST para double fault e NMI.
+- IDT de 256 vetores, stubs Assembly e diagnostico de excecoes da CPU.
+- PIC remapeado, PIT a 100 Hz e encaminhamento ExtINT pelo LAPIC.
+- Espera com interrupcoes ativas e contador de ticks.
+- Autotestes de tabelas, retorno de INT3, registros e falhas reais em BIOS/UEFI.
+
 ## 0.0.1 - 2026-11-26
 
 Primeira versao do NexusOS.

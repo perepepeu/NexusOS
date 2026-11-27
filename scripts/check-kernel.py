@@ -45,7 +45,12 @@ def capture_screen(monitor_path, destination):
 def boot(mode, scenario, image, firmware):
     suffix = mode if scenario == "normal" else f"{scenario}-{mode}"
     log = Path(f"build/boot-{suffix}.log")
-    fatal = scenario in ("panic", "assert")
+    exceptions = {"divide": (0, "Divide error", "0x0"),
+                  "opcode": (6, "Invalid opcode", "0x0"),
+                  "pagefault": (14, "Page fault", "0x0"),
+                  "protection": (13, "General protection", "0xfff8"),
+                  "doublefault": (8, "Double fault", "0x0")}
+    fatal = scenario in ("panic", "assert") or scenario in exceptions
     marker = (b"Sistema interrompido. Reinicie a maquina." if fatal else
               b"NexusOS: kernel inicial pronto. CPU em espera.")
     with tempfile.TemporaryDirectory(prefix="nexus-qmp-") as directory:
@@ -79,17 +84,26 @@ def boot(mode, scenario, image, firmware):
                 process.wait()
 
     text = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", log.read_bytes())
-    required = [b"Bootloader: Limine", b"Protocolo Limine: OK", b"Tela: framebuffer pronto."]
+    required = [b"Bootloader: Limine", b"Protocolo Limine: OK", b"Tela: framebuffer pronto.",
+                b"GDT e TSS carregadas.", b"IDT carregada: 256 vetores.",
+                b"Interrupcoes habilitadas.", b"Timer IRQ0 confirmado:"]
     records = re.findall(rb"\[(\d+)\] \[(?:DEBUG|INFO|WARN|ERROR|FATAL)\]", text)
     if list(map(int, records)) != list(range(1, len(records) + 1)):
         raise RuntimeError(f"Sequencia de logs incorreta; consulte {log}")
     if fatal:
-        code = 3 if scenario == "panic" else 4
+        code = 5 if scenario in exceptions else 3 if scenario == "panic" else 4
         required += [f"[FATAL] [panic] KERNEL PANIC codigo={code}:".encode(), marker]
         if (b"kernel inicial pronto" in text or
-                not re.search(rb"Origem: kernel/main.c:\d+", text)):
+                (scenario not in exceptions and not re.search(rb"Origem: kernel/main.c:\d+", text))):
             raise RuntimeError(f"Panic sem origem ou boot continuou; consulte {log}")
         if scenario == "assert": required += [b"Assert falhou: false"]
+        if scenario in exceptions:
+            vector, name, error = exceptions[scenario]
+            required += [name.encode(), f"Vetor={vector} Erro={error}".encode()]
+            if not re.search(rb"RIP=0xffffffff[0-9a-f]+ RSP=0xffffffff[0-9a-f]+", text):
+                raise RuntimeError(f"Contexto da CPU ausente; consulte {log}")
+            if scenario == "pagefault": required += [b"CR2=0x400000000000"]
+            if scenario == "doublefault": required += [b"IST double fault ativa."]
     else:
         required += [marker]
         if b"PANIC" in text.upper() or b"[FATAL]" in text:
@@ -101,6 +115,9 @@ def boot(mode, scenario, image, firmware):
                      b"[ERROR] [test] Erro recuperavel simulado"]
         if b"DEBUG oculto" in text:
             raise RuntimeError(f"Filtro de log falhou; consulte {log}")
+    if scenario == "interrupts":
+        required += [b"Breakpoint INT3 tratado; retornando por IRETQ.",
+                     b"GDT IDT INT3 registros e PIT: OK."]
     if any(message not in text for message in required):
         raise RuntimeError(f"Diagnostico incompleto; consulte {log}")
     print(f"OK: {scenario}/{mode}, serial e framebuffer; log: {log}", flush=True)
@@ -108,12 +125,16 @@ def boot(mode, scenario, image, firmware):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--errors", action="store_true", help="Testa logs, panic e assert.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--errors", action="store_true", help="Testa logs, panic e assert.")
+    group.add_argument("--interrupts", action="store_true", help="Testa tabelas, IRQs e excecoes.")
     args = parser.parse_args()
     Path("build").mkdir(exist_ok=True)
     firmware = Path("/usr/share/OVMF/OVMF_CODE_4M.fd")
     if not firmware.is_file(): raise SystemExit("OVMF ausente: instale o pacote ovmf.")
-    scenarios = ("logs", "panic", "assert") if args.errors else ("normal",)
+    scenarios = (("logs", "panic", "assert") if args.errors else
+                 ("interrupts", "divide", "opcode", "pagefault", "protection", "doublefault")
+                 if args.interrupts else ("normal",))
     for scenario in scenarios:
         image = Path("build/nexusos.iso")
         if scenario != "normal":

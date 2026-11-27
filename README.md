@@ -84,11 +84,12 @@ NexusOS
 [2] [INFO] [video] Tela: framebuffer pronto.
 [3] [INFO] [boot] Bootloader: Limine 12.11.1
 [4] [INFO] [boot] Protocolo Limine: OK
-[5] [INFO] [boot] NexusOS: kernel inicial pronto. CPU em espera.
+...
+[11] [INFO] [boot] NexusOS: kernel inicial pronto. CPU em espera.
 ```
 
-Ao terminar, a CPU aguarda com `cli; hlt`, sem consumir um nucleo em loop ativo.
-Ainda nao ha shell, teclado ou interrupcoes configuradas. A saida do kernel
+Ao terminar, a CPU aguarda com `sti; hlt`, acordando nas interrupcoes do timer.
+Falhas fatais usam `cli; hlt`. Ainda nao ha shell ou driver de teclado. A saida do kernel
 aparece na tela e no terminal serial dos comandos `make run` e `make run-uefi`.
 O header oficial do protocolo e versionado em `kernel/include/limine.h`, com
 licenca e commit de origem preservados. Falhas no protocolo imprimem PANIC e
@@ -139,6 +140,7 @@ Uma reentrada no handler usa uma mensagem minima na serial.
 | 2 | Identificacao do bootloader ausente |
 | 3 | Falha fatal injetada pelo autoteste |
 | 4 | Assert do kernel falhou |
+| 5 | Excecao da CPU ou interrupcao inesperada |
 
 ```sh
 make check-kernel  # Boot normal, BIOS e UEFI
@@ -153,9 +155,52 @@ Logs e capturas ficam em `build/boot-{cenario}-{bios|uefi}.log` e
 `build/screen-{cenario}-{bios|uefi}.ppm`.
 
 Os registros sao emitidos imediatamente, sem arquivo de log ou buffer persistente.
-O logger opera no contexto atual de uma CPU com interrupcoes desabilitadas.
-Excecoes de hardware (como page fault e divisao por zero) ainda dependem da
-implementacao futura da IDT e de seus handlers.
+O logger opera em uma CPU. O handler do timer nao escreve logs, evitando
+reentrada enquanto o kernel escreve. Handlers de excecoes executam com
+interrupcoes mascaraveis desabilitadas.
+
+## GDT, IDT e interrupcoes
+
+A GDT propria contem segmentos ring 0 de codigo (`0x08`), dados (`0x10`) e
+um TSS de 64 bits (`0x18`). O kernel recarrega os seletores e TR. O TSS reserva
+pilhas de 16 KiB independentes para double fault (IST1), NMI (IST2) e RSP0.
+Ainda nao ha segmentos ou transicoes para processos em ring 3.
+
+A IDT contem 256 interrupt gates, acessiveis apenas pelo kernel. Os stubs
+Assembly normalizam o codigo de erro, preservam os 15 registradores gerais,
+limpam DF para chamar C e alinham a pilha ao ABI. O retorno usa `iretq` para
+restaurar o contexto e RFLAGS. `INT3` registra o breakpoint e retorna; as demais
+excecoes param o kernel com nome, vetor, codigo de erro, RIP, RSP e RFLAGS.
+Page fault tambem informa CR2. Double fault usa IST1 e verifica a pilha utilizada.
+
+O PIC 8259 e remapeado para os vetores `32-47`, com somente IRQ0 liberada.
+O PIT gera aproximadamente 100 interrupcoes por segundo. O handler incrementa
+um contador de ticks e envia EOI; IRQ7 e IRQ15 espurias recebem o tratamento
+especifico do PIC. O LAPIC encaminha ExtINT para o PIC em modo virtual wire,
+com vetor espurio `255`. Essa etapa usa uma CPU e o PIC; nao configura IOAPIC,
+roteamento SMP ou scheduler.
+
+Para acessar o LAPIC xAPIC, o kernel mapeia uma unica pagina MMIO de 4 KiB em
+`0xfffffe0000000000`, com PCD/PWT. As tabelas auxiliares sao estaticas; enderecos
+fisicos e HHDM sao obtidos do Limine. Esse caminho exige paging de quatro niveis
+e o slot virtual livre; nao substitui um gerenciador geral de memoria. O caminho
+x2APIC usa MSRs quando esse modo ja esta ativo.
+
+```sh
+make check-interrupts
+```
+
+O teste executa seis cenarios em BIOS e UEFI: leitura de GDTR/IDTR/TR e
+seletores, retorno de INT3 com preservacao de registros e DF, repeticao de IRQ0,
+divisao por zero, opcode invalido, page fault, general protection e double fault
+real com verificacao da IST. As falhas reais verificam vetor, codigo de erro e
+contexto da CPU, alem da saida na serial e dos pixels na tela.
+
+As ISOs de teste usam `selftest=interrupts`, `selftest=divide`, `selftest=opcode`,
+`selftest=pagefault`, `selftest=protection` e `selftest=doublefault`. O boot normal
+aguarda alguns ticks antes de informar que o kernel esta pronto.
+
+Referencia de arquitetura: [Intel SDM, volumes de programacao de sistema](https://cdrdv2-public.intel.com/874240/325462-090-sdm-vol-1-2abcd-3abcd-4.pdf).
 
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1

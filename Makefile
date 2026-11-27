@@ -5,7 +5,7 @@ QEMU := qemu-system-x86_64
 QEMUFLAGS := -machine q35 -accel tcg -m 256M -boot d -net none -no-reboot
 OVMF ?= /usr/share/OVMF/OVMF_CODE_4M.fd
 DISPLAY_BACKEND ?= gtk
-KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o
+KERNEL_OBJECTS := build/kernel/entry.o build/kernel/main.o build/kernel/console.o build/kernel/serial.o build/kernel/log.o build/kernel/panic.o build/kernel/interrupts.o build/kernel/interrupt_stubs.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -30,6 +30,10 @@ build/kernel/entry.o: kernel/entry.asm toolchain.mk Makefile | check-kernel-arch
 	mkdir -p $(@D)
 	$(AS) $(ASFLAGS) $< -o $@
 
+build/kernel/interrupt_stubs.o: kernel/interrupts.asm toolchain.mk Makefile | check-kernel-arch
+	mkdir -p $(@D)
+	$(AS) $(ASFLAGS) $< -o $@
+
 build/kernel.elf: $(KERNEL_OBJECTS) kernel/linker.ld | check-kernel-arch
 	$(LD) $(LDFLAGS) -z max-page-size=0x1000 -T kernel/linker.ld $(KERNEL_OBJECTS) -o $@
 
@@ -48,6 +52,10 @@ check-kernel: iso
 .PHONY: check-errors
 check-errors: iso
 	python3 scripts/check-kernel.py --errors
+
+.PHONY: check-interrupts
+check-interrupts: iso
+	python3 scripts/check-kernel.py --interrupts
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader
