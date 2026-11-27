@@ -38,9 +38,8 @@ bool process_owner_alive(uint64_t pid) {
 static void schedule(void) {
     unsigned int old = manager.current;
     reap_stacks();
-    int next;
-    while ((next = process_core_pick(&manager, timer_ticks())) < 0)
-        __asm__ volatile ("sti; hlt; cli" : : : "memory");
+    int next = process_core_pick(&manager, timer_ticks());
+    KASSERT(next >= 0); /* Idle deve estar pronto quando todas as demais bloqueiam. */
     if ((unsigned int)next != old) {
         process_context_switch(&manager.tasks[old].context, manager.tasks[next].context);
         reap_stacks();
@@ -53,20 +52,7 @@ __attribute__((noreturn)) static void trampoline(void) {
     p->entry(p->argument);
     thread_exit(0);
 }
-bool process_init(void) {
-    struct vmm_stats v;
-    vmm_get_stats(&v);
-    uint64_t flags = irq_save();
-    if (manager.ready || !v.ready || v.window_size < (1ull << 31) + THREAD_MAX * STACK_STRIDE) { irq_restore(flags); return false; }
-    stack_window = v.window_base + (1ull << 31);
-    bool result = process_core_init(&manager); irq_restore(flags); return result;
-}
-static uint64_t create(const char *name, void (*entry)(void *), void *argument, bool thread) {
-    if (!manager.ready || !name || !*name || !entry) return 0;
-    uint64_t flags = irq_save();
-    KASSERT(flags & (1u << 9));
-    int slot = process_core_free_slot(&manager);
-    if (slot < 0) { irq_restore(flags); return 0; }
+static uintptr_t allocate_stack(int slot) {
     uintptr_t stack = stack_window + (unsigned int)slot * STACK_STRIDE + 4096;
     unsigned int mapped = 0;
     for (; mapped < STACK_PAGES; ++mapped) {
@@ -81,8 +67,44 @@ static uint64_t create(const char *name, void (*entry)(void *), void *argument, 
             KASSERT(vmm_unmap_page(stack + --mapped * 4096, &physical) == VMM_OK);
             KASSERT(pmm_free_page(physical) == PMM_OK);
         }
-        irq_restore(flags); return 0;
+        return 0;
     }
+    return stack;
+}
+static void setup_context(struct thread_control_block *p, uintptr_t stack, void (*entry)(void *), void *argument) {
+    p->stack = stack; p->entry = entry; p->argument = argument;
+    /* Seis callee-saved + RET; RSP%16=8 ao entrar no trampoline SysV. */
+    uintptr_t *context = (uintptr_t *)(stack + STACK_PAGES * 4096 - 64);
+    for (unsigned int i = 0; i < 8; ++i) context[i] = 0;
+    context[6] = (uintptr_t)trampoline; p->context = (uintptr_t)context;
+}
+static void idle_entry(void *argument) {
+    (void)argument;
+    for (;;) {
+        uint64_t flags = irq_save();
+        if (!process_core_has_ready(&manager)) __asm__ volatile ("sti; hlt; cli" : : : "memory");
+        irq_restore(flags); process_yield();
+    }
+}
+bool process_init(void) {
+    struct vmm_stats v; vmm_get_stats(&v);
+    uint64_t flags = irq_save();
+    if (manager.ready || !v.ready || v.window_size < (1ull << 31) + THREAD_MAX * STACK_STRIDE) { irq_restore(flags); return false; }
+    stack_window = v.window_base + (1ull << 31);
+    KASSERT(process_core_init(&manager));
+    uintptr_t stack = allocate_stack(1);
+    if (!stack) { manager = (struct process_manager){0}; irq_restore(flags); return false; }
+    KASSERT(process_core_add_idle(&manager));
+    setup_context(&manager.tasks[1], stack, idle_entry, 0);
+    irq_restore(flags); return true;
+}
+static uint64_t create(const char *name, void (*entry)(void *), void *argument, bool thread) {
+    if (!manager.ready || !name || !*name || !entry) return 0;
+    uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
+    int slot = process_core_free_slot(&manager);
+    if (slot < 0) { irq_restore(flags); return 0; }
+    uintptr_t stack = allocate_stack(slot);
+    if (!stack) { irq_restore(flags); return 0; }
     int created = thread ? thread_core_create(&manager, name) : process_core_create(&manager, name);
     if (created < 0) {
         struct thread_control_block temporary = {.stack = stack}; release_stack(&temporary);
@@ -90,11 +112,7 @@ static uint64_t create(const char *name, void (*entry)(void *), void *argument, 
     }
     KASSERT(created == slot);
     struct thread_control_block *p = &manager.tasks[slot];
-    p->stack = stack; p->entry = entry; p->argument = argument;
-    /* Seis callee-saved + RET; RSP%16=8 ao entrar no trampoline SysV. */
-    uintptr_t *context = (uintptr_t *)(stack + STACK_PAGES * 4096 - 64);
-    for (unsigned int i = 0; i < 8; ++i) context[i] = 0;
-    context[6] = (uintptr_t)trampoline; p->context = (uintptr_t)context;
+    setup_context(p, stack, entry, argument);
     uint64_t id = thread ? p->info.tid : p->info.pid;
     irq_restore(flags); return id;
 }
@@ -103,6 +121,13 @@ uint64_t thread_create(const char *name, void (*entry)(void *), void *argument) 
 uint64_t process_current_pid(void) { return manager.ready ? manager.tasks[manager.current].info.pid : 0; }
 uint64_t thread_current_tid(void) { return manager.ready ? manager.tasks[manager.current].info.tid : 0; }
 void process_on_tick(uint64_t now) { process_core_tick(&manager, now); }
+bool process_keyboard_block(void) {
+    if (!manager.ready) return false;
+    uint64_t flags = irq_save(); KASSERT(!(flags & (1u << 9)));
+    KASSERT(process_core_block(&manager, PROCESS_BLOCK_INPUT, 0, timer_ticks()));
+    schedule(); return true;
+}
+void process_keyboard_wake(void) { process_core_input_wake(&manager); }
 void process_yield(void) {
     if (!manager.ready) return;
     uint64_t flags = irq_save(); KASSERT(flags & (1u << 9));
@@ -263,7 +288,8 @@ static void guard_worker(void *argument) {
 }
 void process_selftest(bool guard_fault) {
     if (guard_fault) {
-        uint64_t pid = process_create("guard-fault", guard_worker, (void *)(uintptr_t)(stack_window + STACK_STRIDE));
+        int slot = process_core_free_slot(&manager);
+        uint64_t pid = process_create("guard-fault", guard_worker, (void *)(uintptr_t)(stack_window + (unsigned int)slot * STACK_STRIDE));
         KASSERT(pid && process_wait(pid, 0));
         PANIC(ERR_SELFTEST, "Processo de teste nao gerou page fault.");
     }
@@ -319,6 +345,8 @@ void process_selftest(bool guard_fault) {
     KASSERT(pb.free_pages == pa.free_pages && pb.allocated_pages == pa.allocated_pages &&
         vb.mapped_pages == va.mapped_pages && vb.table_pages == va.table_pages);
     struct process_info list[PROCESS_MAX];
-    KASSERT(process_snapshot(list, PROCESS_MAX) == 1 && list[0].pid == 1);
+    KASSERT(process_snapshot(list, PROCESS_MAX) == 2 && list[0].pid == 1 && list[1].pid == 0);
+    KASSERT(list[1].cpu_ticks > 0 && !process_kill(0, -9));
+    log_info("test", "Idle: PID/TID 0, pilha propria, HLT, despertar e protecao OK.");
     log_info("test", "Processos: contexto, round-robin, sono, wait, kill, guardas e limpeza OK.");
 }

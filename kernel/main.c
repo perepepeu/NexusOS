@@ -213,7 +213,12 @@ void kmain(void) {
     if (boot_option("selftest=assert")) KASSERT(false);
 
     if (!process_init()) PANIC(ERR_PROCESS, "Nao foi possivel iniciar o gerenciador de processos.");
-    log_info("process", "Gerenciador pronto: PID 1, 32 slots; round-robin cooperativo em ring 0.");
+    log_info("process", "Gerenciador pronto: PID 1, Idle PID 0; 32 PCBs/64 TCBs em ring 0.");
+    struct pmm_stats process_pages; struct vmm_stats process_maps;
+    pmm_get_stats(&process_pages); vmm_get_stats(&process_maps);
+    log_info("process", "Base: alocadas=%llu mapeadas=%llu tabelas=%llu",
+        (unsigned long long)process_pages.allocated_pages, (unsigned long long)process_maps.mapped_pages,
+        (unsigned long long)process_maps.table_pages);
     if (boot_option("selftest=processes")) process_selftest(false);
     if (boot_option("selftest=process-guard")) process_selftest(true);
     log_info("boot", "NexusOS: kernel inicial pronto. CPU em espera.");
@@ -224,5 +229,5 @@ void kmain(void) {
             keyboard_loop(boot_option("selftest=keyboard"));
         terminal_run(info->name, info->version);
     }
-    interrupts_idle();
+    for (;;) process_sleep(1);
 }

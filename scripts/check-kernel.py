@@ -287,6 +287,11 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
     required += [b"[INFO] [memory] Mapa fisico:"]
     required += [b"[INFO] [pmm] Alocador pronto:"]
     required += [b"VMM pronto: CR3="]
+    baseline = re.search(rb"\[process\] Base: alocadas=(\d+) mapeadas=(\d+) tabelas=(\d+)", text)
+    allocated, mapped_pages, tables = map(int, baseline.groups()) if baseline else (1, 0, 1)
+    memory_baseline = [f"Paginas alocadas: {allocated}".encode(), f"Paginas mapeadas: {mapped_pages}".encode(),
+                       f"Tabelas proprias: {tables} paginas".encode()]
+    if not fatal and not baseline: raise RuntimeError(f"Baseline do gerenciador ausente; consulte {log}")
     records = re.findall(rb"\[(\d+)\] \[(?:DEBUG|INFO|WARN|ERROR|FATAL)\]", text)
     if list(map(int, records)) != list(range(1, len(records) + 1)):
         raise RuntimeError(f"Sequencia de logs incorreta; consulte {log}")
@@ -410,37 +415,37 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
             if not match: raise RuntimeError(f"Estatisticas PMM ausentes; consulte {log}")
             values[name] = int(match[1])
         if (values["totais"] != values["livres"] + values["alocadas"] + values["de metadados"]
-                or values["alocadas"] != 1 or values["de metadados"] == 0):
+                or values["alocadas"] != allocated or values["de metadados"] == 0):
             raise RuntimeError(f"Contadores PMM incorretos; consulte {log}")
         bitmap = re.search(rb"Bitmap fisico: 0x([0-9a-f]+)", text)
         if not bitmap or int(bitmap[1], 16) == 0 or int(bitmap[1], 16) % 4096:
             raise RuntimeError(f"Bitmap PMM invalido; consulte {log}")
     if scenario == "vmm":
         required += [b"VMM: CR3, aliases, isolamento, permissoes e limpeza OK.",
-                     b"Memoria virtual do kernel - 4 niveis", b"Paginas mapeadas: 0",
-                     b"Tabelas proprias: 1 paginas", b"Paginas alocadas: 1"]
+                     b"Memoria virtual do kernel - 4 niveis"] + memory_baseline
         if ram_mib > 4096: required += [b"VMM: frame acima de 4 GiB mapeado e acessado OK."]
     if scenario == "heap":
         required += [b"Heap: alinhamento, zero, realloc, fusao e devolucao ao PMM/VMM OK.",
                      b"Integridade do heap: OK.",
                      b"Heap do kernel - alinhamento 16 bytes", b"Alocacoes ativas: 0",
                      b"Arenas ativas: 0", b"Bytes solicitados: 0 bytes", b"Bytes mapeados: 0 bytes",
-                     b"Paginas mapeadas: 0", b"Tabelas proprias: 1 paginas", b"Paginas alocadas: 1"]
+                     ] + memory_baseline
     if scenario == "memtest":
         required += [b"RAM total identificada:", b"Uso: memtest (sem argumentos).", b"Integridade do heap: OK.",
-                     b"Paginas alocadas: 1", b"Paginas mapeadas: 0", b"Tabelas proprias: 1 paginas",
-                     b"Alocacoes ativas: 0", b"Arenas ativas: 0", b"Bytes mapeados: 0 bytes"]
+                     b"Alocacoes ativas: 0", b"Arenas ativas: 0", b"Bytes mapeados: 0 bytes"] + memory_baseline
         if text.count(b"Memtest: PMM, VMM e heap OK; sem vazamentos.") != 2 or b"Memtest: FALHOU" in text:
             raise RuntimeError(f"Memtest falhou/repeticao deixou vazamentos; consulte {log}")
     if scenario == "processes":
         required += [b"Processos: contexto, round-robin, sono, wait, kill, guardas e limpeza OK.",
                      b"Threads: TIDs distintos, PID compartilhado, join e ultima thread OK.",
                      b"Recursos: heap automatico, paginas, mapas, destrutores, transferencia, kill e OOM OK.",
+                     b"Idle: PID/TID 0, pilha propria, HLT, despertar e protecao OK.",
                      b"Processos do kernel (cooperativos, ring 0)", b"PID PPID ESTADO THREADS TICKS SAIDA NOME",
                      b"Threads do kernel", b"TID PID ESTADO TICKS SAIDA NOME", b"Uso: spawn (sem argumentos).",
                      b"Filho inexistente ou ja coletado.", b"Processo inexistente, encerrado ou protegido.",
-                     b"Uso: kill PID (inteiro positivo).", b"Paginas alocadas: 1", b"Paginas mapeadas: 0",
-                     b"Tabelas proprias: 1 paginas", b"Alocacoes ativas: 0"]
+                     b"Uso: kill PID (inteiro positivo).", b"Alocacoes ativas: 0"] + memory_baseline
+        idle_row = re.search(rb"(?:^|\n)0 0 READY 1 (\d+) 0 idle", text)
+        if not idle_row or not int(idle_row[1]): raise RuntimeError(f"Idle nao executou; consulte {log}")
         ids = re.findall(rb"Processo criado: (\d+)", text)
         if len(ids) != 2 or ids[0] == ids[1]: raise RuntimeError("PIDs de spawn invalidos")
         required += [b"Processo coletado: " + ids[0] + b" status=0", b"Processo encerrado: " + ids[1],

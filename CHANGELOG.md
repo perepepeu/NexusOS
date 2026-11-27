@@ -2,6 +2,10 @@
 
 ## Em desenvolvimento
 
+- Processo Idle PID/TID 0, com PCB/TCB e pilha protegida permanentes.
+- Idle so executa sem trabalho pronto; teclado bloqueia leitores e os acorda por IRQ1.
+- Baseline de memoria inclui os recursos permanentes do Idle e e validado nas suites.
+
 - Recursos associados ao PID: heap automatico, blocos fisicos, mapas virtuais e destrutores.
 - Limpeza de grupos apos sair da CPU, transferencia de posse e rollback quando o registro enche.
 

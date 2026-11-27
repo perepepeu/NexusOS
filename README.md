@@ -660,7 +660,7 @@ seu TID e `thread_exit()` termina somente a thread atual. PIDs e TIDs possuem
 contadores independentes. O escalonador escolhe TCBs, enquanto `ps` agrega
 estado, ticks e quantidade de threads por PCB. `threads` lista os TCBs.
 
-Cada processo criado recebe uma pilha RW/NX de 16 KiB, com uma pagina ausente
+Cada thread criada recebe uma pilha RW/NX de 16 KiB, com uma pagina ausente
 antes e outra depois. As pilhas ocupam o intervalo reservado
 `[window_base + 2 GiB, window_base + 2 GiB + 64 * 24 KiB)`, separado do heap e
 do memtest. Falhas parciais de alocacao desfazem os mapas e devolvem os frames.
@@ -671,13 +671,22 @@ O codigo C do kernel usa somente registradores gerais: nao ha contexto FPU/SIMD.
 O escalonamento e cooperativo em round-robin. Um processo deve chamar
 `process_yield()`, `process_sleep()` ou `process_wait()` para ceder a CPU.
 O PIT contabiliza ticks e acorda processos dormindo; a IRQ nao troca contextos,
-aloca memoria nem libera pilhas. Quando nao ha processo pronto, o escalonador
-aguarda com STI/HLT. O terminal cede a CPU ao consultar o teclado; por isso os
-processos de demonstracao continuam executando sem entrada do usuario.
+aloca memoria nem libera pilhas. O processo Idle tem PID 0, TID 0, PCB/TCB e
+pilha protegida proprios. So e escolhido quando nenhuma thread comum esta
+READY. Executa STI/HLT e volta ao escalonador apos uma interrupcao; nao pode
+ser encerrado, coletado ou bloqueado. Kernel e Idle ocupam dois dos 32 PCBs
+e dois dos 64 TCBs. A pilha do Idle e suas tabelas sao recursos permanentes.
+O log `Base` registra esse consumo para distinguir recursos permanentes de
+vazamentos nos testes.
+
+Sem entrada, o terminal fica BLOCKED por teclado, permitindo que o Idle rode.
+A IRQ1 acorda os leitores sem trocar de contexto; a verificacao da fila e o
+bloqueio ocorrem com IRQs desabilitadas para evitar perda de wakeup. O PIT
+acorda threads dormindo e o Idle cede a CPU assim que houver trabalho pronto.
 Um processo que nunca cede a CPU pode bloquear o restante do sistema.
 
 Estados: READY, RUNNING, BLOCKED e TERMINATED. O campo `blocked_on` distingue
-sono pelo PIT de espera por filho; ambos sao BLOCKED e so voltam a READY
+sono pelo PIT, espera por filho, join e espera por teclado; todos sao BLOCKED e so voltam a READY
 quando sua condicao e satisfeita. Ao retornar da funcao de
 entrada, a thread termina com status 0. O processo continua vivo enquanto houver
 outra thread ativa. `process_exit(status)` e `kill PID` encerram o grupo inteiro.
@@ -699,8 +708,8 @@ make check-processes
 ```
 
 `ps` mostra PID, pai, estado, quantidade de threads, ticks atribuidos enquanto RUNNING, status e nome.
-Esses ticks incluem o tempo em que o terminal aguarda IRQs e nao sao uma medicao
-precisa de utilizacao de CPU. `spawn` inicia uma demo silenciosa; `kill PID`
+O tempo ocioso fica atribuido ao Idle; ticks amostrados pelo PIT nao sao uma
+medicao precisa de utilizacao de CPU. `spawn` inicia uma demo silenciosa; `kill PID`
 encerra um processo fora da CPU com status -9; `wait PID` espera/coleta um filho.
 Argumentos invalidos, PID inexistente, self-kill e espera por nao-filho sao
 rejeitados. Os ponteiros de funcao/argumento devem permanecer validos.

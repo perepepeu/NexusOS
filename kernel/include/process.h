@@ -6,7 +6,7 @@
 
 enum { PROCESS_MAX = 32, THREAD_MAX = 64, PROCESS_NAME = 24 };
 enum process_state { PROCESS_UNUSED, PROCESS_READY, PROCESS_RUNNING, PROCESS_BLOCKED, PROCESS_TERMINATED };
-enum process_block_reason { PROCESS_NOT_BLOCKED, PROCESS_BLOCK_SLEEP, PROCESS_BLOCK_WAIT, PROCESS_BLOCK_JOIN, PROCESS_BLOCK_MIXED };
+enum process_block_reason { PROCESS_NOT_BLOCKED, PROCESS_BLOCK_SLEEP, PROCESS_BLOCK_WAIT, PROCESS_BLOCK_JOIN, PROCESS_BLOCK_MIXED, PROCESS_BLOCK_INPUT };
 struct process_info {
     uint64_t pid, parent, cpu_ticks;
     size_t threads;
@@ -41,5 +41,8 @@ size_t process_snapshot(struct process_info *out, size_t capacity);
 size_t thread_snapshot(struct thread_info *out, size_t capacity);
 const char *process_state_name(enum process_state state);
 void process_on_tick(uint64_t now);
+/* Integracao com teclado: chamadas com IRQs desabilitadas; wake nao troca contexto. */
+bool process_keyboard_block(void);
+void process_keyboard_wake(void);
 void process_selftest(bool guard_fault);
 #endif

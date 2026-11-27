@@ -81,5 +81,23 @@ int main(void) {
     assert(!process_core_block(&s, PROCESS_BLOCK_JOIN, 99999, 0));
     s.next_pid = UINT64_MAX; assert(process_core_create(&s, "pid-wrap") < 0);
     s.next_tid = UINT64_MAX; assert(thread_core_create(&s, "tid-wrap") < 0);
+    s = (struct process_manager){0}; assert(process_core_init(&s) && process_core_add_idle(&s));
+    assert(!process_core_add_idle(&s));
+    assert(process_core_find(&s, 0) == 1 && thread_core_find(&s, 0) == 1);
+    s.tasks[0].info.state = PROCESS_READY;
+    assert(process_core_pick(&s, 0) == 0); /* Idle nao compete com trabalho pronto. */
+    assert(process_core_block(&s, PROCESS_BLOCK_SLEEP, 2, 0));
+    assert(process_core_pick(&s, 0) == 1);
+    assert(!process_core_has_ready(&s) && !process_core_finish(&s, 0, -9) && !thread_core_finish(&s, 0, -9));
+    assert(process_core_create(&s, "from-idle") < 0 && thread_core_create(&s, "from-idle") < 0);
+    assert(!process_core_block(&s, PROCESS_BLOCK_SLEEP, 1, 0));
+    process_core_tick(&s, 2); s.tasks[1].info.state = PROCESS_READY;
+    assert(process_core_has_ready(&s) && process_core_pick(&s, 2) == 0);
+    assert(process_core_block(&s, PROCESS_BLOCK_INPUT, 0, 2));
+    assert(process_core_pick(&s, 2) == 1);
+    process_core_tick(&s, 3); assert(s.tasks[0].info.state == PROCESS_BLOCKED);
+    process_core_input_wake(&s); assert(s.tasks[0].info.state == PROCESS_READY);
+    s.tasks[1].info.state = PROCESS_READY; assert(process_core_pick(&s, 3) == 0);
+    assert(!process_core_collect(&s, 0, 0) && !thread_core_collect(&s, 0, 0));
     puts("OK: PCB/TCB, PID/TID, estados, join/ciclos, grupos, orfaos, limites e reutilizacao.");
 }

@@ -18,6 +18,9 @@ struct process_manager {
     bool ready;
 };
 bool process_core_init(struct process_manager *s);
+bool process_core_add_idle(struct process_manager *s);
+bool process_core_has_ready(struct process_manager *s);
+void process_core_input_wake(struct process_manager *s);
 int process_core_find(struct process_manager *s, uint64_t pid);
 int thread_core_find(struct process_manager *s, uint64_t tid);
 int process_core_free_slot(struct process_manager *s);

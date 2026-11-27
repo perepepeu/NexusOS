@@ -12,6 +12,14 @@ bool process_core_init(struct process_manager *s) {
         .info = {.tid = 1, .pid = 1, .state = PROCESS_RUNNING, .name = "kernel-main"}};
     return true;
 }
+bool process_core_add_idle(struct process_manager *s) {
+    if (!s || !s->ready || s->processes[1].used || s->tasks[1].info.state != PROCESS_UNUSED) return false;
+    s->processes[1] = (struct process_control_block){.used = true, .system = true,
+        .info = {.pid = 0, .threads = 1, .state = PROCESS_READY, .name = "idle"}};
+    s->tasks[1] = (struct thread_control_block){.system = true,
+        .info = {.tid = 0, .pid = 0, .state = PROCESS_READY, .name = "idle"}};
+    return true;
+}
 int process_core_find(struct process_manager *s, uint64_t pid) {
     if (!s || !s->ready) return -1;
     for (unsigned int i = 0; i < PROCESS_MAX; ++i)
@@ -58,7 +66,7 @@ static int new_thread(struct process_manager *s, const char *name, uint64_t pid)
 }
 int process_core_create(struct process_manager *s, const char *name) {
     if (process_core_free_slot(s) < 0 || !name || !*name || s->next_pid == UINT64_MAX ||
-            s->tasks[s->current].info.state != PROCESS_RUNNING) return -1;
+            s->tasks[s->current].info.state != PROCESS_RUNNING || !s->tasks[s->current].info.pid) return -1;
     int pcb = -1;
     for (unsigned int i = 1; i < PROCESS_MAX; ++i) if (!s->processes[i].used) { pcb = (int)i; break; }
     if (pcb < 0) return -1;
@@ -69,13 +77,14 @@ int process_core_create(struct process_manager *s, const char *name) {
     int slot = new_thread(s, name, pid); sync_states(s); return slot;
 }
 int thread_core_create(struct process_manager *s, const char *name) {
-    if (!s || !s->ready || !name || !*name || s->tasks[s->current].info.state != PROCESS_RUNNING) return -1;
+    if (!s || !s->ready || !name || !*name || s->tasks[s->current].info.state != PROCESS_RUNNING || !s->tasks[s->current].info.pid) return -1;
     int slot = new_thread(s, name, s->tasks[s->current].info.pid);
     sync_states(s); return slot;
 }
 bool process_core_block(struct process_manager *s, enum process_block_reason reason, uint64_t value, uint64_t now) {
     if (!s || !s->ready || s->tasks[s->current].info.state != PROCESS_RUNNING) return false;
     struct thread_control_block *t = &s->tasks[s->current];
+    if (!t->info.pid) return false;
     if (reason == PROCESS_BLOCK_SLEEP) {
         if (!value || value > INT64_MAX) return false;
         t->sleep_start = now; t->sleep_ticks = value;
@@ -98,7 +107,7 @@ bool process_core_block(struct process_manager *s, enum process_block_reason rea
             if (n == THREAD_MAX - 1) return false;
         }
         t->waiting_for = value;
-    } else return false;
+    } else if (reason != PROCESS_BLOCK_INPUT) return false;
     t->info.state = PROCESS_BLOCKED; t->info.blocked_on = reason; sync_states(s); return true;
 }
 static void wake_sleepers(struct process_manager *s, uint64_t now) {
@@ -124,11 +133,32 @@ int process_core_pick(struct process_manager *s, uint64_t now) {
     wake_sleepers(s, now);
     for (unsigned int n = 1; n <= THREAD_MAX; ++n) {
         unsigned int i = (s->current + n) % THREAD_MAX;
-        if (s->tasks[i].info.state == PROCESS_READY) {
+        if (s->tasks[i].info.state == PROCESS_READY && s->tasks[i].info.pid != 0) {
             s->current = i; s->tasks[i].info.state = PROCESS_RUNNING; sync_states(s); return (int)i;
         }
     }
+    int idle = thread_core_find(s, 0);
+    if (idle >= 0 && s->tasks[idle].info.state == PROCESS_READY) {
+        s->current = (unsigned int)idle; s->tasks[idle].info.state = PROCESS_RUNNING;
+        sync_states(s); return idle;
+    }
     sync_states(s); return -1;
+}
+bool process_core_has_ready(struct process_manager *s) {
+    if (!s || !s->ready) return false;
+    for (unsigned int i = 0; i < THREAD_MAX; ++i)
+        if (s->tasks[i].info.pid && s->tasks[i].info.state == PROCESS_READY) return true;
+    return false;
+}
+void process_core_input_wake(struct process_manager *s) {
+    if (!s || !s->ready) return;
+    for (unsigned int i = 0; i < THREAD_MAX; ++i) {
+        struct thread_info *t = &s->tasks[i].info;
+        if (t->state == PROCESS_BLOCKED && t->blocked_on == PROCESS_BLOCK_INPUT) {
+            t->state = PROCESS_READY; t->blocked_on = PROCESS_NOT_BLOCKED;
+        }
+    }
+    sync_states(s);
 }
 bool process_core_finish(struct process_manager *s, uint64_t pid, int status) {
     int pcb = process_core_find(s, pid);

@@ -150,6 +150,7 @@ void keyboard_irq(void) {
         if (status & 0xc0) { extended = false; pause_bytes = 0; ++dropped; continue; }
         decode(byte);
     }
+    if (head != tail) process_keyboard_wake();
 }
 
 bool keyboard_read(struct key_event *event) {
@@ -168,6 +169,7 @@ void keyboard_wait(struct key_event *event) {
         uint64_t flags = irq_save();
         KASSERT(flags & (1u << 9));
         if (keyboard_read(event)) { irq_restore(flags); return; }
+        if (process_keyboard_block()) { irq_restore(flags); continue; }
         /* STI e HLT adjacentes eliminam a janela de perda de wakeup. */
         __asm__ volatile ("sti; hlt" : : : "memory");
     }
