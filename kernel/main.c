@@ -4,6 +4,8 @@
 #include <log.h>
 #include <panic.h>
 #include <interrupts.h>
+#include <keyboard.h>
+#include <serial.h>
 
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t requests_start[] = LIMINE_REQUESTS_START_MARKER;
@@ -51,6 +53,53 @@ static bool boot_option(const char *option) {
         if (start == text && !*expected) return true;
     }
     return false;
+}
+
+static void echo(const char *text) {
+    console_write(text);
+    serial_write(text);
+}
+
+__attribute__((noreturn)) static void keyboard_loop(bool trace) {
+    char line[128];
+    unsigned int length = 0, previous_dropped = 0;
+    log_info("keyboard", "Teclado pronto. Digite e pressione Enter.");
+    echo("teclado> ");
+    for (;;) {
+        struct key_event event;
+        keyboard_wait(&event);
+        if (trace) log_info("key", "code=%x down=%u mods=%x char=%u", (unsigned int)event.keycode,
+            (unsigned int)event.pressed, (unsigned int)event.modifiers,
+            (unsigned int)(uint8_t)event.character);
+        unsigned int lost = keyboard_dropped();
+        if (lost != previous_dropped) {
+            log_warn("keyboard", "Descartes acumulados: %u", lost);
+            previous_dropped = lost;
+        }
+        if (!event.pressed || (event.modifiers & (KEY_CTRL | KEY_ALT))) continue;
+        char c = event.character;
+        if (c == '\n') {
+            line[length] = 0;
+            echo("\n");
+            log_info("keyboard", "Entrada: %s", line);
+            length = 0;
+            echo("teclado> ");
+        } else if (c == '\b') {
+            if (length) {
+                --length;
+                console_write("\b");
+                serial_write("\b \b");
+            }
+        } else if (c == '\t') {
+            for (unsigned int i = 0; i < 4 && length < sizeof line - 1; ++i) {
+                line[length++] = ' '; echo(" ");
+            }
+        } else if (c >= 32 && c <= 126 && length < sizeof line - 1) {
+            line[length++] = c;
+            char text[2] = {c, 0};
+            echo(text);
+        }
+    }
 }
 
 __attribute__((noreturn))
@@ -116,5 +165,6 @@ void kmain(void) {
     if (boot_option("selftest=assert")) KASSERT(false);
 
     log_info("boot", "NexusOS: kernel inicial pronto. CPU em espera.");
+    if (keyboard_init()) keyboard_loop(boot_option("selftest=keyboard"));
     interrupts_idle();
 }

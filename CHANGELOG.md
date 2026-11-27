@@ -2,6 +2,10 @@
 
 ## Em desenvolvimento
 
+- Driver PS/2 por IRQ1, fila de eventos, modificadores e traducao ASCII US.
+- Demonstracao de entrada com eco, Backspace, Tab e envio de linhas por Enter.
+- Testes de teclado com injecao de teclas pelo QMP em BIOS e UEFI.
+
 - GDT propria, TSS e pilhas IST para double fault e NMI.
 - IDT de 256 vetores, stubs Assembly e diagnostico de excecoes da CPU.
 - PIC remapeado, PIT a 100 Hz e encaminhamento ExtINT pelo LAPIC.

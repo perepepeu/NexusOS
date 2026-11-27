@@ -15,5 +15,7 @@ void timer_wait(unsigned int ticks);
 __attribute__((noreturn)) void interrupts_idle(void);
 void interrupt_dispatch(struct interrupt_frame *frame);
 void interrupts_selftest(void);
+void interrupts_enable_irq(unsigned int irq);
+void interrupts_disable_irq(unsigned int irq);
 __attribute__((noreturn)) void interrupts_test_double_fault(void);
 #endif

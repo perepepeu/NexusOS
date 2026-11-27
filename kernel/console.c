@@ -108,6 +108,26 @@ static uint8_t glyph_row(char c, unsigned int row) {
         case ')': return row == 0 || row == 6 ? 8 : row == 1 || row == 5 ? 4 : 2;
         case '=': return row == 2 || row == 4 ? 31 : 0;
         case '%': return row == 0 || row == 1 ? 25 : row == 5 || row == 6 ? 19 : (uint8_t)(1u << (row - 1));
+        case '>': return row < 4 ? (uint8_t)(1u << (4 - row)) : (uint8_t)(1u << (row - 2));
+        case '<': return row < 4 ? (uint8_t)(1u << row) : (uint8_t)(1u << (6 - row));
+        case '!': return row < 4 || row == 6 ? 4 : 0;
+        case '?': { static const uint8_t question[7] = {14,17,1,2,4,0,4}; return question[row]; }
+        case ',': return row == 5 ? 4 : row == 6 ? 8 : 0;
+        case '\'': return row < 2 ? 4 : 0;
+        case '"': return row < 2 ? 10 : 0;
+        case '`': return row == 0 ? 8 : row == 1 ? 4 : 0;
+        case '\\': return (uint8_t)(1u << (4 - row * 4 / 6));
+        case '|': return 4;
+        case '+': return row == 3 ? 31 : row > 0 && row < 6 ? 4 : 0;
+        case '#': return row == 2 || row == 4 ? 31 : 10;
+        case '^': return row == 0 ? 4 : row == 1 ? 10 : 0;
+        case '~': return row == 2 ? 9 : row == 3 ? 22 : 0;
+        case '*': return row == 2 || row == 4 ? 10 : row == 3 ? 4 : 0;
+        case '{': return row == 0 || row == 6 ? 6 : row == 3 ? 8 : 4;
+        case '}': return row == 0 || row == 6 ? 12 : row == 3 ? 2 : 4;
+        case '$': { static const uint8_t dollar[7] = {4,15,20,14,5,30,4}; return dollar[row]; }
+        case '@': { static const uint8_t at[7] = {14,17,23,21,23,16,14}; return at[row]; }
+        case '&': { static const uint8_t amp[7] = {12,18,20,8,21,18,13}; return amp[row]; }
         default: {
             static const uint8_t unknown[7] = {14,17,1,2,4,0,4};
             return unknown[row];
@@ -128,6 +148,17 @@ void console_write(const char *text) {
         char c = *text++;
         if (c == '\n') { newline(); continue; }
         if (c == '\r') { cursor_x = MARGIN; continue; }
+        if (c == '\b') {
+            if (cursor_x > MARGIN) cursor_x -= CELL_WIDTH;
+            else if (cursor_y > MARGIN) {
+                cursor_y -= CELL_HEIGHT;
+                cursor_x = MARGIN + ((screen->width - 2 * MARGIN) / CELL_WIDTH - 1) * CELL_WIDTH;
+            } else continue;
+            for (unsigned int y = 0; y < CELL_HEIGHT; ++y)
+                for (unsigned int x = 0; x < CELL_WIDTH; ++x)
+                    pixel(cursor_x + x, cursor_y + y, background);
+            continue;
+        }
         if (cursor_x + CELL_WIDTH > screen->width - MARGIN) newline();
         for (unsigned int y = 0; y < CELL_HEIGHT; ++y) {
             uint8_t bits = y < 7 * SCALE ? glyph_row(c, y / SCALE) : 0;

@@ -89,7 +89,7 @@ NexusOS
 ```
 
 Ao terminar, a CPU aguarda com `sti; hlt`, acordando nas interrupcoes do timer.
-Falhas fatais usam `cli; hlt`. Ainda nao ha shell ou driver de teclado. A saida do kernel
+Falhas fatais usam `cli; hlt`. Ainda nao ha shell. A saida do kernel
 aparece na tela e no terminal serial dos comandos `make run` e `make run-uefi`.
 O header oficial do protocolo e versionado em `kernel/include/limine.h`, com
 licenca e commit de origem preservados. Falhas no protocolo imprimem PANIC e
@@ -173,7 +173,8 @@ restaurar o contexto e RFLAGS. `INT3` registra o breakpoint e retorna; as demais
 excecoes param o kernel com nome, vetor, codigo de erro, RIP, RSP e RFLAGS.
 Page fault tambem informa CR2. Double fault usa IST1 e verifica a pilha utilizada.
 
-O PIC 8259 e remapeado para os vetores `32-47`, com somente IRQ0 liberada.
+O PIC 8259 e remapeado para os vetores `32-47`. A inicializacao libera IRQ0;
+o driver de teclado libera IRQ1 quando conclui sua configuracao.
 O PIT gera aproximadamente 100 interrupcoes por segundo. O handler incrementa
 um contador de ticks e envia EOI; IRQ7 e IRQ15 espurias recebem o tratamento
 especifico do PIC. O LAPIC encaminha ExtINT para o PIC em modo virtual wire,
@@ -201,6 +202,57 @@ As ISOs de teste usam `selftest=interrupts`, `selftest=divide`, `selftest=opcode
 aguarda alguns ticks antes de informar que o kernel esta pronto.
 
 Referencia de arquitetura: [Intel SDM, volumes de programacao de sistema](https://cdrdv2-public.intel.com/874240/325462-090-sdm-vol-1-2abcd-3abcd-4.pdf).
+
+## Driver de teclado PS/2
+
+O driver configura o controlador i8042 nas portas `0x60/0x64`, negocia ACKs
+com ate tres tentativas e limites de espera, seleciona scancodes set 2 no
+dispositivo e habilita traducao para set 1 no controlador. IRQ1 usa o vetor
+33 da IDT. Se a inicializacao falhar, a IRQ permanece mascarada e o kernel
+continua com um aviso.
+
+O handler apenas le os bytes, atualiza o estado e enfileira eventos; nao imprime
+nem espera por comandos dentro da interrupcao. A fila comporta 63 eventos;
+quando cheia, descarta novos eventos e contabiliza os descartes. O consumo
+protege os indices com interrupcoes desabilitadas. `keyboard_wait` exige IF
+habilitado e usa `sti; hlt` para aguardar sem perder o wakeup entre a consulta
+da fila e a espera.
+
+```c
+#include <keyboard.h>
+
+struct key_event event;
+if (keyboard_read(&event) && event.pressed) {
+    // event.keycode, event.character e event.modifiers
+}
+```
+
+Cada evento informa press/release, scancode sem break bit, caractere ASCII
+e flags Shift/Ctrl/Alt/Caps Lock. O bit 8 do keycode marca teclas E0, incluindo
+setas e modificadores direitos. Os shifts esquerdo e direito sao independentes;
+Caps Lock combina com Shift apenas nas letras. O layout inicial e **US**.
+Pause e Print Screen sao ignorados sem alterar os modificadores. Ainda nao ha
+layout ABNT2, acentos, USB HID, LEDs ou traducao dos digitos do teclado numerico.
+
+Ao iniciar com `make run`, clique na janela do QEMU e digite em `teclado>`.
+A demonstracao ecoa caracteres na tela e serial, aceita ate 127 caracteres,
+Backspace, Tab (quatro espacos) e Enter. Enter registra a linha nos logs e
+abre outra entrada; nao executa comandos. Ctrl/Alt e teclas sem caractere sao
+entregues pela API, mas nao inserem texto nessa demonstracao. A fonte da tela
+continua exibindo letras em maiusculas; a serial preserva o caractere original.
+
+```sh
+make check-keyboard
+```
+
+O teste injeta teclas no dispositivo PS/2 real do QEMU via QMP, em BIOS e UEFI.
+Verifica press/release, Shift, Caps Lock, Shift+Caps, pontuacao, Backspace,
+Enter, Ctrl/Alt direitos e esquerdos, seta E0 e os dois shifts simultaneos.
+As linhas finais e os eventos sao conferidos na serial; uma captura verifica
+os pixels da tela. O teste tambem repete a digitacao sem trace para conferir
+a demonstracao usada no boot normal. `selftest=keyboard` habilita o trace
+de eventos apenas na ISO de teste. Logs: `build/boot-keyboard-{bios|uefi}.log`
+e `build/boot-keyboard-echo-{bios|uefi}.log`.
 
 Referencias oficiais:
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1

@@ -9,7 +9,7 @@ import tempfile
 import time
 
 
-def capture_screen(monitor_path, destination):
+def qmp_execute(monitor_path, command, arguments=None):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         connection.settimeout(5)
         connection.connect(monitor_path)
@@ -31,7 +31,11 @@ def capture_screen(monitor_path, destination):
                         return
 
             execute("qmp_capabilities")
-            execute("screendump", {"filename": str(destination.resolve())})
+            execute(command, arguments)
+
+
+def capture_screen(monitor_path, destination):
+    qmp_execute(monitor_path, "screendump", {"filename": str(destination.resolve())})
 
     header, dimensions, maximum, pixels = destination.read_bytes().split(b"\n", 3)
     width, height = map(int, dimensions.split())
@@ -41,6 +45,39 @@ def capture_screen(monitor_path, destination):
     if (colors.count(bytes((16, 24, 32))) < width * height // 2
             or colors.count(bytes((220, 235, 245))) < 500):
         raise RuntimeError(f"Fundo ou texto do kernel ausente: {destination}")
+
+
+def type_keyboard_test(monitor_path):
+    def events(items):
+        qmp_execute(monitor_path, "input-send-event", {"events": [
+            {"type": "key", "data": {"down": down, "key": {"type": "qcode", "data": key}}}
+            for key, down in items]})
+        time.sleep(0.03)
+
+    def chord(*keys):
+        events([(key, True) for key in keys] + [(key, False) for key in reversed(keys)])
+
+    chord("a")
+    chord("shift", "b")
+    chord("caps_lock")
+    chord("c")
+    chord("shift", "d")
+    chord("caps_lock")
+    chord("1")
+    chord("shift", "1")
+    chord("backspace")
+    chord("minus")
+    chord("ret")
+    chord("ctrl", "a")
+    chord("alt", "b")
+    chord("ctrl_r", "a")
+    chord("alt_r", "b")
+    chord("up")
+    events([("shift", True), ("shift_r", True), ("shift", False)])
+    chord("a")
+    events([("shift_r", False)])
+    chord("ret")
+    chord("esc")
 
 def boot(mode, scenario, image, firmware):
     suffix = mode if scenario == "normal" else f"{scenario}-{mode}"
@@ -52,7 +89,9 @@ def boot(mode, scenario, image, firmware):
                   "doublefault": (8, "Double fault", "0x0")}
     fatal = scenario in ("panic", "assert") or scenario in exceptions
     marker = (b"Sistema interrompido. Reinicie a maquina." if fatal else
-              b"NexusOS: kernel inicial pronto. CPU em espera.")
+              b"code=1 down=0 mods=0 char=0" if scenario == "keyboard" else
+              b"[keyboard] Entrada: A" if scenario == "keyboard-echo" else
+              b"Teclado pronto. Digite e pressione Enter.")
     with tempfile.TemporaryDirectory(prefix="nexus-qmp-") as directory:
         monitor_path = str(Path(directory) / "monitor.sock")
         command = [
@@ -67,9 +106,14 @@ def boot(mode, scenario, image, firmware):
                 command, stdout=output, stderr=subprocess.STDOUT) as process:
             try:
                 deadline = time.monotonic() + 20
+                injected = False
                 while marker not in log.read_bytes():
                     if process.poll() is not None or time.monotonic() >= deadline:
                         raise RuntimeError(f"Kernel nao concluiu {scenario}/{mode}; consulte {log}")
+                    if (scenario in ("keyboard", "keyboard-echo") and not injected and
+                            b"Teclado pronto. Digite e pressione Enter." in log.read_bytes()):
+                        type_keyboard_test(monitor_path)
+                        injected = True
                     time.sleep(0.1)
                 # O guest deve permanecer ativo, inclusive apos um panic.
                 try:
@@ -105,7 +149,8 @@ def boot(mode, scenario, image, firmware):
             if scenario == "pagefault": required += [b"CR2=0x400000000000"]
             if scenario == "doublefault": required += [b"IST double fault ativa."]
     else:
-        required += [marker]
+        required += [marker, b"PS/2 pronto: IRQ1, scancodes set 1, layout US.",
+                     b"NexusOS: kernel inicial pronto. CPU em espera."]
         if b"PANIC" in text.upper() or b"[FATAL]" in text:
             raise RuntimeError(f"Falha fatal inesperada; consulte {log}")
     if scenario == "logs":
@@ -118,6 +163,18 @@ def boot(mode, scenario, image, firmware):
     if scenario == "interrupts":
         required += [b"Breakpoint INT3 tratado; retornando por IRETQ.",
                      b"GDT IDT INT3 registros e PIT: OK."]
+    if scenario in ("keyboard", "keyboard-echo"):
+        required += [b"[keyboard] Entrada: aBCd1-", b"[keyboard] Entrada: A"]
+        if b"Descartes acumulados" in text:
+            raise RuntimeError(f"Teclas descartadas durante o teste; consulte {log}")
+    if scenario == "keyboard":
+        required += [b"code=1e down=1 mods=0 char=97", b"code=1e down=0 mods=0 char=0",
+                     b"code=30 down=1 mods=1 char=66", b"code=2e down=1 mods=8 char=67",
+                     b"code=20 down=1 mods=9 char=100", b"code=2 down=1 mods=1 char=33",
+                     b"code=e down=1 mods=0 char=8", b"code=1e down=1 mods=2 char=97",
+                     b"code=30 down=1 mods=4 char=98", b"code=11d down=0 mods=0 char=0",
+                     b"code=138 down=0 mods=0 char=0", b"code=148 down=1 mods=0 char=0",
+                     b"code=148 down=0 mods=0 char=0", b"code=1e down=1 mods=1 char=65"]
     if any(message not in text for message in required):
         raise RuntimeError(f"Diagnostico incompleto; consulte {log}")
     print(f"OK: {scenario}/{mode}, serial e framebuffer; log: {log}", flush=True)
@@ -128,11 +185,12 @@ def main():
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--errors", action="store_true", help="Testa logs, panic e assert.")
     group.add_argument("--interrupts", action="store_true", help="Testa tabelas, IRQs e excecoes.")
+    group.add_argument("--keyboard", action="store_true", help="Injeta teclas PS/2 pelo QMP.")
     args = parser.parse_args()
     Path("build").mkdir(exist_ok=True)
     firmware = Path("/usr/share/OVMF/OVMF_CODE_4M.fd")
     if not firmware.is_file(): raise SystemExit("OVMF ausente: instale o pacote ovmf.")
-    scenarios = (("logs", "panic", "assert") if args.errors else
+    scenarios = (("keyboard", "keyboard-echo") if args.keyboard else ("logs", "panic", "assert") if args.errors else
                  ("interrupts", "divide", "opcode", "pagefault", "protection", "doublefault")
                  if args.interrupts else ("normal",))
     for scenario in scenarios:

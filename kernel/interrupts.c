@@ -4,6 +4,7 @@
 #include <io.h>
 #include <log.h>
 #include <panic.h>
+#include <keyboard.h>
 
 struct descriptor_pointer { uint16_t limit; uint64_t base; } __attribute__((packed));
 struct tss64 {
@@ -150,6 +151,7 @@ void interrupt_dispatch(struct interrupt_frame *frame) {
         unsigned int irq = frame->vector - 32;
         if (spurious(irq)) return;
         if (irq == 0) ++ticks;
+        if (irq == 1) keyboard_irq();
         if (irq >= 8) outb(0xa0, 0x20);
         outb(0x20, 0x20);
         return;
@@ -192,6 +194,23 @@ void interrupts_init(uint64_t hhdm, uint64_t physical, uint64_t virtual) {
 }
 
 uint64_t timer_ticks(void) { return ticks; }
+
+void interrupts_enable_irq(unsigned int irq) {
+    KASSERT(irq < 16);
+    uint64_t flags = irq_save();
+    uint16_t port = irq < 8 ? 0x21 : 0xa1;
+    outb(port, inb(port) & ~(1u << (irq % 8)));
+    if (irq >= 8) outb(0x21, inb(0x21) & ~(1u << 2));
+    irq_restore(flags);
+}
+
+void interrupts_disable_irq(unsigned int irq) {
+    KASSERT(irq < 16);
+    uint64_t flags = irq_save();
+    uint16_t port = irq < 8 ? 0x21 : 0xa1;
+    outb(port, inb(port) | (1u << (irq % 8)));
+    irq_restore(flags);
+}
 
 void timer_wait(unsigned int count) {
     uint64_t start = ticks;
