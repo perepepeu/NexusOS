@@ -204,6 +204,7 @@ void interrupt_dispatch(struct interrupt_frame *frame) {
     struct panic_context context = {
         .vector = frame->vector, .error = frame->error, .rip = frame->rip,
         .rsp = frame->rsp, .rflags = frame->rflags, .cr2 = cr2,
+        .frame = frame,
     };
     kernel_exception(frame->vector < 32 ? names[frame->vector] : "Interrupcao inesperada", &context);
 }

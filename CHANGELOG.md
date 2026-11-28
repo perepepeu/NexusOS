@@ -1,5 +1,11 @@
 # Historico de versoes
 
+## Em desenvolvimento — auditoria de fundamentos
+
+- Runtime freestanding completo para memoria/strings e panic com todos os GPRs/CS/SS.
+- Framebuffer com limites explicitos, formatos RGB sem mascaras sobrepostas e testes de padding/rolagem.
+- GDB real em BIOS/UEFI, stack ABI e probes de inicializacao DATA/BSS.
+
 ## 0.3 - 2026-11-28
 
 - Build 0.3 e alvo check-release com suites ASan/UBSan/QEMU e verificacao SHA-256 da ISO.

@@ -16,8 +16,10 @@ enum kernel_error {
     ERR_PROCESS = 11,
 };
 
+struct interrupt_frame;
 struct panic_context {
     uint64_t vector, error, rip, rsp, rflags, cr2;
+    const struct interrupt_frame *frame;
 };
 __attribute__((noreturn)) void kernel_exception(const char *name,
     const struct panic_context *context);

@@ -7,6 +7,8 @@ _start:
     cli
     cld
     lea rsp, [rel stack_top]
+    test rsp, 15
+    jnz .halt
     xor ebp, ebp
     call kmain
 .halt:

@@ -16,6 +16,9 @@
 #include <user_mode.h>
 #include <programs.h>
 
+volatile uint64_t boot_bss_probe[8];
+volatile uint64_t boot_data_probe = 0x4e455855534f5321ull;
+
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t requests_start[] = LIMINE_REQUESTS_START_MARKER;
 
@@ -121,6 +124,20 @@ __attribute__((noreturn))
 void kmain(void) {
     log_init();
     log_info("boot", "NexusOS: iniciando kernel x86_64...");
+    for (unsigned int i = 0; i < 8; ++i) KASSERT(!boot_bss_probe[i]);
+    KASSERT(boot_data_probe == 0x4e455855534f5321ull);
+    log_info("boot", "Globais/BSS iniciais: OK; stack bootstrap alinhada a 16 bytes.");
+
+    /* Injecoes controladas de falhas do protocolo, apenas por cmdline de teste. */
+    if (boot_option("selftest=boot-bad-revision")) base_revision[2] = 1;
+    if (boot_option("selftest=boot-no-framebuffer")) framebuffer.response = 0;
+    if (boot_option("selftest=boot-no-info")) bootloader_info.response = 0;
+    if (boot_option("selftest=boot-no-hhdm")) hhdm.response = 0;
+    if (boot_option("selftest=boot-no-address")) executable_address.response = 0;
+    if (boot_option("selftest=boot-no-memory")) memory_map.response = 0;
+    if (boot_option("selftest=boot-no-rsdp")) rsdp.response = 0;
+    if (boot_option("selftest=boot-no-modules")) modules.response = 0;
+    if (boot_option("selftest=boot-no-cmdline")) command_line.response = 0;
 
     if (!LIMINE_BASE_REVISION_SUPPORTED(base_revision)) {
         PANIC(ERR_BOOT_PROTOCOL, "Revisao do protocolo Limine nao suportada.");

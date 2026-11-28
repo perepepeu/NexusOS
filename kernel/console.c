@@ -45,6 +45,7 @@ static uint32_t color(uint8_t red, uint8_t green, uint8_t blue) {
 }
 
 static void pixel(uint64_t x, uint64_t y, uint32_t value) {
+    if (!screen || x >= screen->width || y >= screen->height) return;
     volatile uint32_t *row = (volatile uint32_t *)
         ((volatile uint8_t *)screen->address + y * screen->pitch);
     row[x] = value;
@@ -70,6 +71,7 @@ static bool valid_channel(uint8_t size, uint8_t shift) {
 }
 
 static bool console_init_unlocked(struct limine_framebuffer_response *response) {
+    screen = 0;
     if (!response || !response->framebuffers) {
         return false;
     }
@@ -79,6 +81,7 @@ static bool console_init_unlocked(struct limine_framebuffer_response *response) 
                 || fb->bpp != 32 || fb->pitch % 4 != 0
                 || fb->width > UINT64_MAX / 4 || fb->pitch < fb->width * 4
                 || fb->height == 0 || fb->pitch > UINT64_MAX / fb->height
+                || (uintptr_t)fb->address > UINTPTR_MAX - fb->pitch * fb->height
                 || fb->width < 2 * MARGIN + CELL_WIDTH
                 || fb->height < 2 * MARGIN + CELL_HEIGHT
                 || !valid_channel(fb->red_mask_size, fb->red_mask_shift)
@@ -86,6 +89,10 @@ static bool console_init_unlocked(struct limine_framebuffer_response *response) 
                 || !valid_channel(fb->blue_mask_size, fb->blue_mask_shift)) {
             continue;
         }
+        uint32_t red = ((1u << fb->red_mask_size) - 1) << fb->red_mask_shift;
+        uint32_t green = ((1u << fb->green_mask_size) - 1) << fb->green_mask_shift;
+        uint32_t blue = ((1u << fb->blue_mask_size) - 1) << fb->blue_mask_shift;
+        if ((red & green) || (red & blue) || (green & blue)) continue;
         screen = fb;
         background = color(16, 24, 32);
         foreground = color(220, 235, 245);

@@ -113,6 +113,16 @@ run: iso
 run-uefi: iso
 	$(QEMU) $(QEMUFLAGS) -cdrom build/nexusos.iso -display $(DISPLAY_BACKEND) -serial mon:stdio -drive if=pflash,format=raw,readonly=on,file=$(OVMF)
 
+.PHONY: debug debug-uefi gdb check-gdb
+debug: iso
+	$(QEMU) $(QEMUFLAGS) -cdrom build/nexusos.iso -display $(DISPLAY_BACKEND) -serial mon:stdio -S -gdb tcp:127.0.0.1:1234
+debug-uefi: iso
+	$(QEMU) $(QEMUFLAGS) -cdrom build/nexusos.iso -display $(DISPLAY_BACKEND) -serial mon:stdio -drive if=pflash,format=raw,readonly=on,file=$(OVMF) -S -gdb tcp:127.0.0.1:1234
+gdb:
+	gdb -x scripts/kernel.gdb
+check-gdb: iso
+	python3 scripts/check-gdb.py
+
 check-kernel: iso
 	python3 scripts/check-kernel.py
 
@@ -238,6 +248,18 @@ check-monitor-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/monitor_test.c kernel/monitor.c -o build/tests/monitor
 	build/tests/monitor
+
+.PHONY: check-runtime-unit
+check-runtime-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-builtin -Ikernel/include -Dmemset=nexus_memset -Dmemcpy=nexus_memcpy -Dmemmove=nexus_memmove -Dmemcmp=nexus_memcmp -Dstrlen=nexus_strlen -Dstrcmp=nexus_strcmp -Dstrncmp=nexus_strncmp -Dstrcpy=nexus_strcpy -Dstrncpy=nexus_strncpy tests/runtime_test.c kernel/runtime.c -o build/tests/runtime
+	build/tests/runtime
+
+.PHONY: check-console-unit
+check-console-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Itests/host -Ikernel/include tests/console_test.c kernel/console.c -o build/tests/console
+	build/tests/console
 
 .PHONY: check-diagnostics
 check-diagnostics: iso check-monitor-unit

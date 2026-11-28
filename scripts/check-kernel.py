@@ -426,6 +426,8 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
         if scenario in exceptions:
             vector, name, error = exceptions[scenario]
             required += [name.encode(), f"Vetor={vector} Erro={error}".encode()]
+            required += [b"RAX=", b"RBX=", b"RCX=", b"RDX=", b"RSI=", b"RDI=", b"RBP=",
+                         b"R8=", b"R9=", b"R10=", b"R11=", b"R12=", b"R13=", b"R14=", b"R15=", b"CS=", b"SS="]
             if not re.search(rb"RIP=0xffff[0-9a-f]+ RSP=0xffff[0-9a-f]+", text):
                 raise RuntimeError(f"Contexto da CPU ausente; consulte {log}")
             if scenario == "pagefault": required += [b"CR2=0x400000000000"]
