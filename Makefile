@@ -16,6 +16,7 @@ KERNEL_OBJECTS += build/kernel/user_mode.o
 KERNEL_OBJECTS += build/kernel/syscall.o
 KERNEL_OBJECTS += build/kernel/elf64.o
 KERNEL_OBJECTS += build/kernel/programs.o
+KERNEL_OBJECTS += build/kernel/monitor.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -225,6 +226,12 @@ check-elf-unit:
 .PHONY: check-elf
 check-elf: iso check-elf-unit
 	python3 scripts/check-kernel.py --elf
+
+.PHONY: check-monitor-unit
+check-monitor-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/monitor_test.c kernel/monitor.c -o build/tests/monitor
+	build/tests/monitor
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader

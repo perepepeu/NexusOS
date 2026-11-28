@@ -2,6 +2,9 @@
 
 ## Em desenvolvimento
 
+- top basico: amostra de CPU por PID durante um segundo, ordenada por uso, incluindo Idle.
+- Percentuais sem overflow, PID independente de slot e testes ASan/UBSan do monitor.
+
 - Validacao QEMU de dois ELFs simultaneos com CR3/frames/argv independentes e limpeza integral.
 - Nove probes ELF na CPU verificam RX/RO/NX, memoria do kernel, pagina zero e guardas.
 - Rejeicao sem consumir PID, rollback da pilha kernel e teste dos comandos run/wait.

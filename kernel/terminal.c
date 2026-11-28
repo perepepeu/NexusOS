@@ -16,6 +16,7 @@
 #include <io.h>
 #include <user_mode.h>
 #include <programs.h>
+#include <monitor.h>
 
 enum { LINE_SIZE = 128, HISTORY_SIZE = 8 };
 static const char prompt[] = "nexus> ";
@@ -176,6 +177,24 @@ static void process_summary(void) {
         signed_number(list[i].exit_status); put(" "); put(list[i].name); put(list[i].user_mode ? " R3\n" : " R0\n");
     }
 }
+static void top_summary(void) {
+    struct process_info before[PROCESS_MAX], after[PROCESS_MAX];
+    struct monitor_row rows[PROCESS_MAX];
+    uint64_t flags = irq_save(), start = timer_ticks();
+    size_t n_before = process_snapshot(before, PROCESS_MAX); irq_restore(flags);
+    process_sleep(SCHEDULER_PIT_HZ);
+    flags = irq_save(); uint64_t elapsed = timer_ticks() - start;
+    size_t n_after = process_snapshot(after, PROCESS_MAX); irq_restore(flags);
+    size_t count = monitor_build(before, n_before, after, n_after, elapsed, rows, PROCESS_MAX);
+    put("Top: janela="); number(elapsed, true); put(" ticks; CPU por PID (inclui kernel e Idle)\n");
+    put("PID ESTADO CPU% TICKS MODO NOME\n");
+    for (size_t i = 0; i < count; ++i) {
+        number(rows[i].process.pid, true); put(" "); put(process_state_name(rows[i].process.state)); put(" ");
+        number(rows[i].permille / 10, true); put("."); number(rows[i].permille % 10, true); put("% ");
+        number(rows[i].ticks, true); put(rows[i].process.user_mode ? " R3 " : " R0 "); put(rows[i].process.name); put("\n");
+    }
+    put("Top: amostra concluida.\n");
+}
 static void thread_summary(void) {
     struct thread_info list[THREAD_MAX];
     size_t count = thread_snapshot(list, THREAD_MAX);
@@ -262,7 +281,7 @@ static void command(char *line, const char *bootloader, const char *boot_version
         || equal(name, "memory") || equal(name, "meminfo") || equal(name, "memtest")
         || equal(name, "memmap") || equal(name, "pmm") || equal(name, "vmm") || equal(name, "heap")
         || equal(name, "ps") || equal(name, "threads") || equal(name, "spawn") || equal(name, "spawnuser") || equal(name, "sched") || equal(name, "sysdemo")
-        || equal(name, "programs") || equal(name, "elfdemo");
+        || equal(name, "programs") || equal(name, "elfdemo") || equal(name, "top");
     if (!known) { put("Comando desconhecido: "); put(name); put(". Digite help.\n"); return; }
     if (*args) { put("Uso: "); put(name); put(" (sem argumentos).\n"); return; }
     if (equal(name, "help")) {
@@ -272,9 +291,11 @@ static void command(char *line, const char *bootloader, const char *boot_version
         put("Processos: ps threads spawn spawnuser kill PID wait PID sched\n");
         put("Usuario: sysdemo (programa interativo de syscalls em Ring 3)\n");
         put("ELF64: programs run NOME elfdemo\n");
+        put("Diagnostico: top (amostra de CPU por 1 segundo)\n");
         put("Edicao: setas, Home/End, Delete, Backspace, historico Up/Down.\n");
         put("Ctrl+C cancela, Ctrl+U apaga a linha, Ctrl+L limpa a tela.\n");
     } else if (equal(name, "ps")) process_summary();
+    else if (equal(name, "top")) top_summary();
     else if (equal(name, "programs")) program_summary();
     else if (equal(name, "elfdemo")) {
         int a, b;
