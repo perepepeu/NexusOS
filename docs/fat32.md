@@ -14,6 +14,8 @@
 
 O driver usa a camada de blocos e fornece um backend somente de leitura ao
 VFS. Nao modifica FATs, FSInfo, timestamps, entradas 8.3 ou registros LFN.
+Esse e o comportamento de `mountfat`; a [etapa de escrita](fat32-write.md)
+adiciona `mountfatrw` para habilitar mutacoes explicitamente.
 Arquivos de nomes longos sao acessados pelo alias curto, como `LONGFI~1.TXT`;
 esta etapa nao reconstrui o nome UTF-16 dos registros LFN.
 

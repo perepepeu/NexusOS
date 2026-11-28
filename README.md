@@ -22,6 +22,10 @@ Veja [RAMFS e inicializacao](docs/ramfs.md).
 `cat /mnt/ARQUIVO.TXT`, `fatinfo` e `umount /mnt`. Testes descartaveis:
 `make check-fat32` (requer mtools no WSL).
 
+Para [escrita FAT32](docs/fat32-write.md), use `mountfatrw ata0 /mnt`.
+Estao disponiveis `write`, `append`, `mkdir`, `truncate`, `mv`, `rm`, `rmdir`
+e `sync`. Testes: `make check-fat32-write` (mtools e dosfstools).
+
 ## Compilador C e Assembly
 
 Ambiente: Ubuntu 24.04 no WSL 2, com GCC 13, NASM 2.16 e GNU Binutils.

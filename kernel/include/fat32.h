@@ -43,11 +43,12 @@ struct fat32 {
     bool (*clock)(uint16_t *date,uint16_t *time);
 };
 /* Unmounted storage only, exclusive caller serialization. start/length are in
- * device sectors. Disk contents must remain unchanged for the mount lifetime. */
+ * device sectors. External changes are forbidden for the mount lifetime.
+ * fat32_open starts readonly; enable_write explicitly authorizes mutations. */
 enum fat32_error fat32_open(struct fat32 *,const struct block_device *,uint64_t start,uint64_t length);
 enum fat32_error fat32_chain(struct fat32 *,uint32_t first,uint32_t *length);
 enum fat32_error fat32_enable_write(struct fat32 *,bool (*clock)(uint16_t *,uint16_t *));
-void fat32_write_selftest(bool verify);
+void fat32_write_selftest(unsigned int mode);
 const char *fat32_error_name(enum fat32_error);
 bool fat32_terminal_command(const char *,const char *);
 void fat32_selftest(bool invalid,uint64_t start,uint64_t length);

@@ -4,18 +4,28 @@
 #include <log.h>
 #include <panic.h>
 #include <io.h>
+#include <fat32_internal.h>
 static struct fat32 volumes[2];
-static enum vfs_error mount_device(const struct block_device *d,const char *path,uint64_t start,uint64_t length,
-    struct fat32 **selected,enum fat32_error *detail) {
+enum vfs_error fat32_mount_runtime(const struct block_device *d,const char *path,uint64_t start,uint64_t length,
+    bool writable,struct fat32 **selected,enum fat32_error *detail) {
     *selected=0; *detail=FAT32_OK;
     uint64_t flags; __asm__ volatile("pushfq; pop %0":"=r"(flags));
     if(!(flags&(1u<<9))) return VFS_CONTEXT;
+    if(!d || !length || start>=d->sectors || length>d->sectors-start) { *detail=FAT32_ARGUMENT; return VFS_INVALID; }
     process_preempt_disable();
     enum vfs_error result=VFS_BUSY;
+    for(unsigned int i=0;i<2;++i) {
+        bool mounted; result=vfs_volume_mounted(&volumes[i].volume,&mounted); if(result) { process_preempt_enable(); return result; }
+        struct fat32 *f=&volumes[i];
+        if(mounted && f->volume.device==d && start<f->geometry.start+f->geometry.length && f->geometry.start<start+length && (writable || f->writable)) {
+            process_preempt_enable(); return VFS_BUSY;
+        }
+    }
     for(unsigned int i=0;i<2;++i) {
         bool mounted; result=vfs_volume_mounted(&volumes[i].volume,&mounted); if(result) break;
         if(mounted) { result=VFS_BUSY; continue; }
         struct fat32 *f=&volumes[i]; *selected=f; *detail=fat32_open(f,d,start,length);
+        if(!*detail && writable) *detail=fat32_enable_write(f,fat32_rtc);
         if(*detail) { result=VFS_IO; break; }
         result=vfs_mount(path,&f->volume); break;
     }
@@ -51,7 +61,8 @@ bool fat32_terminal_command(const char *name,const char *args) {
         }
         return true;
     }
-    if(strcmp(name,"mountfat")) return false;
+    bool writable=!strcmp(name,"mountfatrw");
+    if(strcmp(name,"mountfat") && !writable) return false;
     char copy[VFS_PATH_MAX]; size_t size=strlen(args);
     if(size>=sizeof copy) { log_error("fat32","Argumentos longos."); return true; }
     memcpy(copy,args,size+1); char *tokens[5]; unsigned int count=0; char *p=copy;
@@ -61,7 +72,7 @@ bool fat32_terminal_command(const char *name,const char *args) {
         tokens[count++]=p; while(*p && *p!=' ' && *p!='\t') ++p;
         if(*p) *p++=0;
     }
-    if(count!=2 && count!=4) { log_info("fat32","Uso: mountfat DISCO DIRETORIO [LBA SETORES]"); return true; }
+    if(count!=2 && count!=4) { log_info("fat32","Uso: mountfat|mountfatrw DISCO DIRETORIO [LBA SETORES]"); return true; }
     const struct block_device *disk=0;
     for(size_t i=0;i<block_count();++i) if(!strcmp(block_get(i)->name,tokens[0])) disk=block_get(i);
     if(!disk) { log_error("fat32","Disco nao encontrado. Digite disks."); return true; }
@@ -70,16 +81,16 @@ bool fat32_terminal_command(const char *name,const char *args) {
         log_error("fat32","LBA e SETORES devem ser inteiros decimais."); return true;
     }
     struct fat32 *f; enum fat32_error detail;
-    enum vfs_error e=mount_device(disk,tokens[1],start,length,&f,&detail);
+    enum vfs_error e=fat32_mount_runtime(disk,tokens[1],start,length,writable,&f,&detail);
     if(e) log_error("fat32","Montagem recusada: %s.",detail ? fat32_error_name(detail):vfs_error_name(e));
-    else { log_info("fat32","FAT32 montado somente para leitura em %s.",tokens[1]); info(f); }
+    else { log_info("fat32",writable ? "FAT32 montado para leitura e escrita em %s.":"FAT32 montado somente para leitura em %s.",tokens[1]); info(f); }
     return true;
 }
 void fat32_selftest(bool invalid,uint64_t start,uint64_t length) {
     const struct block_device *d=block_get(0); KASSERT(d);
     if(!length) length=d->sectors-start;
     struct fat32 *f; enum fat32_error detail;
-    enum vfs_error e=mount_device(d,"/mnt",start,length,&f,&detail);
+    enum vfs_error e=fat32_mount_runtime(d,"/mnt",start,length,false,&f,&detail);
     if(invalid) {
         KASSERT(e!=VFS_OK && (detail==FAT32_GEOMETRY || detail==FAT32_TYPE || detail==FAT32_CYCLE));
         log_info("fat32-test","FAT32 REJECT PASS: %s",fat32_error_name(detail)); return;
@@ -116,7 +127,7 @@ void fat32_selftest(bool invalid,uint64_t start,uint64_t length) {
     KASSERT(alias && vfs_close(fd)==VFS_OK);
     KASSERT(vfs_chdir("/mnt/SUB")==VFS_OK && vfs_unmount("/mnt")==VFS_BUSY && vfs_chdir("../..")==VFS_OK);
     KASSERT(vfs_unmount("/mnt")==VFS_OK);
-    e=mount_device(d,"/mnt",start,length,&f,&detail); KASSERT(!e);
+    e=fat32_mount_runtime(d,"/mnt",start,length,false,&f,&detail); KASSERT(!e);
     KASSERT(vfs_stat_path("/mnt/FRAG.BIN",&st)==VFS_OK && st.size==8197 && vfs_unmount("/mnt")==VFS_OK);
     log_info("fat32-test","FAT32 SELFTEST PASS bytes=%u hash=%x; fragmentacao, 8.3/LFN, ciclo e remount OK.",(unsigned int)offset,hash);
 }

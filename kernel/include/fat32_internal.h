@@ -15,4 +15,5 @@ enum vfs_error fat32_rename(struct vfs_node *,struct vfs_node *,const char *);
 enum vfs_error fat32_remove(struct vfs_node *);
 enum vfs_error fat32_sync(struct vfs_volume *);
 bool fat32_rtc(uint16_t *,uint16_t *);
+enum vfs_error fat32_mount_runtime(const struct block_device *,const char *,uint64_t,uint64_t,bool,struct fat32 **,enum fat32_error *);
 #endif

@@ -293,7 +293,9 @@ static void command(char *line, const char *bootloader, const char *boot_version
         put("Energia: reboot shutdown\n");
         put("Armazenamento: disks\n");
         put("FAT32 leitura: mountfat DISCO DIRETORIO [LBA SETORES], fatinfo\n");
+        put("FAT32 escrita: mountfatrw DISCO DIRETORIO [LBA SETORES]\n");
         put("Arquivos: pwd cd ls mkdir cat write append mount umount vfsinfo\n");
+        put("Alterar arquivos: mv rm rmdir truncate sync\n");
         put("Memoria: memory meminfo memmap pmm vmm heap memtest\n");
         put("Processos: ps threads spawn spawnuser kill PID wait PID sched\n");
         put("Usuario: sysdemo (programa interativo de syscalls em Ring 3)\n");

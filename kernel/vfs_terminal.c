@@ -69,6 +69,31 @@ bool vfs_terminal_command(const char *name,const char *args) {
     } else if(!strcmp(name,"umount")) {
         if(!*args || !single(args)) { put("Uso: umount DIRETORIO\n"); return true; }
         e=vfs_unmount(args); if(!e) put("Volume desmontado com seguranca.\n");
+    } else if(!strcmp(name,"rm") || !strcmp(name,"rmdir")) {
+        if(!*args || !single(args)) { put("Uso: rm|rmdir CAMINHO\n"); return true; }
+        e=vfs_remove(args,!strcmp(name,"rmdir"));
+    } else if(!strcmp(name,"mv") || !strcmp(name,"truncate")) {
+        char buffer[VFS_PATH_MAX]; size_t bytes=strlen(args);
+        if(!bytes || bytes>=sizeof buffer) { put("Uso: mv ORIGEM DESTINO | truncate CAMINHO [BYTES]\n"); return true; }
+        memcpy(buffer,args,bytes+1); char *second=buffer;
+        while(*second && *second!=' ' && *second!='\t') ++second;
+        if(*second) *second++=0;
+        while(*second==' ' || *second=='\t') ++second;
+        if(!single(second)) { put("Argumentos demais.\n"); return true; }
+        if(!strcmp(name,"mv")) {
+            if(!*second) { put("Uso: mv ORIGEM DESTINO\n"); return true; }
+            e=vfs_rename(buffer,second);
+        } else {
+            uint64_t size=0;
+            for(char *p=second;*p;++p) {
+                if(*p<'0' || *p>'9' || size>(UINT64_MAX-(unsigned int)(*p-'0'))/10) { put("Tamanho invalido.\n"); return true; }
+                size=size*10+(unsigned int)(*p-'0');
+            }
+            e=vfs_truncate(buffer,size);
+        }
+    } else if(!strcmp(name,"sync")) {
+        if(!single(args)) { put("Uso: sync [CAMINHO]\n"); return true; }
+        e=*args ? vfs_sync(args):vfs_sync_all(); if(!e) put("Dados e metadados sincronizados.\n");
     } else if(!strcmp(name,"vfsinfo")) {
         if(*args) { put("Uso: vfsinfo\n"); return true; }
         struct vfs_stats s; vfs_get_stats(&s);

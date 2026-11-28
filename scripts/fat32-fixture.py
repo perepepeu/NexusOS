@@ -6,7 +6,7 @@ import struct
 import subprocess
 
 SECTORS=131072
-def create(path,work):
+def create(path,work,corrupt_file=True):
     with path.open("xb") as image: image.truncate(SECTORS*512)
     subprocess.run(["mformat","-i",str(path),"-F","-c","1","-v","NEXUS","::"],check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     def copy(name,data):
@@ -57,7 +57,8 @@ def create(path,work):
             put(free,get(old[1])); put(old[0],free); put(old[1],0)
             assert chain(first)[1]==free and abs(free-old[0])>1
         fragment(initial["FRAG.BIN"][1]); fragment(root)
-        updated=entries(); broken=updated["BROKEN.BIN"][1]; put(broken,broken)
+        updated=entries(); broken=updated["BROKEN.BIN"][1]
+        if corrupt_file: put(broken,broken)
         metadata={"root":root,"reserved":reserved,"fats":fats,"fatsize":fatsize,"data":data,
                   "clusters":clusters,"aliases":[n for n in updated if "~" in n]}
     actual=subprocess.check_output(["mtype","-i",str(path),"::/FRAG.BIN"],stderr=subprocess.PIPE)

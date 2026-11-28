@@ -122,13 +122,19 @@ O resolvedor percorre diretorios reais, sem simplificar caminhos antes de
 consultar os nodes: `arquivo/..` retorna `nao e diretorio`. `..` na raiz global
 permanece na raiz; na raiz de um volume montado, retorna ao pai do ponto de
 montagem. Uma barra final exige diretorio. Links simbolicos, hard links,
-permissoes Unix, rename e exclusao de arquivos ficam para outras etapas.
+permissoes Unix ficam para outras etapas. Rename/move e exclusao agora sao
+expostos por `vfs_rename`/`vfs_remove`, com recusa de referencias ativas,
+destino existente, ciclos e passagem entre volumes. RAMFS e FAT32 gravavel
+implementam essas operacoes. `vfs_truncate` redimensiona arquivos e
+`vfs_sync`/`vfs_sync_all` sincronizam um ou todos os volumes.
 
 ## Montagem e vida util
 
 O backend fornece root e operacoes de lookup/create/read/write/truncate/
 readdir/sync. Nodes possuem nome, tipo, tamanho, pai e volume. O backend e
-dono dessas estruturas e deve mante-las estaveis enquanto montado. A mesma
+dono dessas estruturas e deve mante-las estaveis enquanto referenciadas.
+Remocao e liberacao de um node so ocorrem depois que o VFS verifica ausencia
+de FDs/cwd/montagens nele ou em sua arvore. A mesma
 instancia de volume so pode estar montada uma vez. Os dados podem continuar
 existindo apos unmount; liberar/reinicializar o backend e responsabilidade
 de seu dono, apenas quando nao estiver montado.

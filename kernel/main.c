@@ -257,6 +257,10 @@ void kmain(void) {
     if(boot_option("selftest=fat32")) fat32_selftest(false,0,0);
     if(boot_option("selftest=fat32-invalid")) fat32_selftest(true,0,0);
     if(boot_option("selftest=fat32-offset")) fat32_selftest(false,2048,131072);
+    if(boot_option("selftest=fat32-write")) fat32_write_selftest(0);
+    if(boot_option("selftest=fat32-persist")) fat32_write_selftest(1);
+    if(boot_option("selftest=fat32-full")) fat32_write_selftest(2);
+    if(boot_option("selftest=fat32-write-error")) fat32_write_selftest(3);
     if(boot_option("selftest=vfs")) vfs_selftest();
     if(boot_option("selftest=storage")) storage_selftest(false);
     if(boot_option("selftest=storage-verify")) storage_selftest(true);

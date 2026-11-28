@@ -136,5 +136,26 @@ int main(void) {
     assert(!memcmp(saved_lfn,lfn,32)); assert(!vfs_core_close(&v,1,fd));
     assert(!vfs_core_rename(&v,1,"/LONGNA~1.TXT","/SHORT.TXT")); assert(lfn[0]==0xe5 && !memcmp(sfn,"SHORT   TXT",11));
     assert(!vfs_core_remove(&v,1,"/SHORT.TXT",false)); assert(sfn[0]==0xe5);
+    /* Non-mirrored volumes update the selected FAT and leave the other intact. */
+    setup(); w16(image+40,0x81); assert(!fat32_open(&fs,&disk,0,SECTORS)); mount_rw();
+    unsigned char *inactive=malloc(FAT_SIZE*512); assert(inactive); memcpy(inactive,image+32*512,FAT_SIZE*512);
+    fd=open_file("/ACTIVE",VFS_CREATE|VFS_WRITE); assert(!vfs_core_write(&v,1,fd,"active",6).error);
+    assert(!vfs_core_close(&v,1,fd) && !vfs_core_truncate(&v,1,"/ACTIVE",0) && !vfs_core_sync_all(&v));
+    assert(!memcmp(inactive,image+32*512,FAT_SIZE*512)); free(inactive);
+    /* Metadata transaction exhaustion is detected before any data write. */
+    setup(); for(unsigned int c=3;c<CLUSTERS+2;++c) fat(c,0xfffffff);
+    for(unsigned int c=3;c<CLUSTERS+2;c+=128) fat(c,0);
+    mount_rw(); fd=open_file("/LIMIT",VFS_CREATE|VFS_WRITE); before_writes=writes;
+    unsigned char *large=calloc(65536,1); assert(large);
+    io=vfs_core_write(&v,1,fd,large,65536);
+    assert(io.error==VFS_NO_SPACE && !io.count && fs.error==FAT32_LIMIT && writes==before_writes);
+    free(large);
+    /* A readonly attribute protects mutations while preserving read access. */
+    setup(); mount_rw(); fd=open_file("/RO.TXT",VFS_CREATE|VFS_WRITE); assert(!vfs_core_write(&v,1,fd,"ro",2).error);
+    assert(!vfs_core_close(&v,1,fd) && !vfs_core_sync_all(&v)); image[DATA*512+11]|=1;
+    memset(&v,0,sizeof v); assert(!fat32_open(&fs,&disk,0,SECTORS)); mount_rw();
+    assert(vfs_core_open(&v,1,"/RO.TXT",VFS_WRITE|VFS_TRUNCATE,&fd)==VFS_READ_ONLY);
+    assert(vfs_core_remove(&v,1,"/RO.TXT",false)==VFS_READ_ONLY);
+    assert(vfs_core_rename(&v,1,"/RO.TXT","/OTHER")==VFS_READ_ONLY);
     free(image); puts("OK: FAT32 escrita, FATs/FSInfo, create/mkdir, crescimento/append/truncate, move/delete, disco cheio, sync e falhas.");
 }

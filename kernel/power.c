@@ -5,6 +5,7 @@
 #include <log.h>
 #include <power.h>
 #include <process.h>
+#include <vfs.h>
 
 static uint64_t direct_map;
 static const struct limine_memmap_response *memory_map;
@@ -148,8 +149,12 @@ static bool shutdown_unlocked(void) {
     return false;
 }
 bool power_reboot(void) {
-    process_preempt_disable(); bool result = reboot_unlocked(); process_preempt_enable(); return result;
+    process_preempt_disable();
+    enum vfs_error sync=vfs_sync_all(); if(sync && sync!=VFS_CONTEXT) log_warn("power","Sync antes do reboot: %s",vfs_error_name(sync));
+    bool result = reboot_unlocked(); process_preempt_enable(); return result;
 }
 bool power_shutdown(void) {
-    process_preempt_disable(); bool result = shutdown_unlocked(); process_preempt_enable(); return result;
+    process_preempt_disable();
+    enum vfs_error sync=vfs_sync_all(); if(sync && sync!=VFS_CONTEXT) log_warn("power","Sync antes do shutdown: %s",vfs_error_name(sync));
+    bool result = shutdown_unlocked(); process_preempt_enable(); return result;
 }

@@ -2,6 +2,11 @@
 
 ## Em desenvolvimento — auditoria de fundamentos
 
+- FAT32 gravavel opt-in com `mountfatrw`: alocacao/liberacao, FATs espelhadas/ativa, FSInfo, arquivos/diretorios, append, truncate, rename/move, exclusao e sync/flush.
+- VFS ganhou rename/remove/resize/sync, protecao de referencias/montagens e comandos `mv`, `rm`, `rmdir`, `truncate`, `sync`; reboot/shutdown sincronizam volumes.
+- Escrita FAT32 usa preflight de capacidade, metadados preparados em RAM, ordenacao de gravacao e bloqueio apos falha de I/O; LFN e atributo somente leitura sao respeitados nas mutacoes.
+- Testes de escrita/persistencia/disco cheio/falhas em QEMU BIOS/UEFI, com validacao externa por mtools/fsck.fat e testes unitarios de falhas e limites.
+
 - FAT32 somente leitura integrado ao VFS: BPB, geometria, FSInfo, FAT ativa, nomes 8.3, alias de LFN e leitura fragmentada com deteccao de cadeias invalidas/circulares; comandos `mountfat` e `fatinfo`.
 - Testes FAT32 com ASan/UBSan, imagens mtools e QEMU BIOS/UEFI; volume em LBA nao zero, corrupcao e verificacao de imagem/contadores sem escrita.
 

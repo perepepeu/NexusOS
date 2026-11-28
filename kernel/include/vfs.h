@@ -24,7 +24,8 @@ struct vfs_node {
     char name[VFS_NAME_MAX+1];
     uint64_t size;
 };
-/* Backend owns stable nodes until unmount; no per-open backend resources.
+/* Backend owns nodes, stable until unmount or a reference-checked remove;
+ * no per-open backend resources.
  * Callbacks run under the VFS lock, with IRQs enabled. Must not yield,
  * recursively call VFS, or store caller buffers. count <= requested ALWAYS. */
 struct vfs_ops {
