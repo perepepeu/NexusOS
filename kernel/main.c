@@ -15,6 +15,7 @@
 #include <process.h>
 #include <user_mode.h>
 #include <programs.h>
+#include <ata.h>
 
 volatile uint64_t boot_bss_probe[8];
 volatile uint64_t boot_data_probe = 0x4e455855534f5321ull;
@@ -246,6 +247,7 @@ void kmain(void) {
     log_info("process", "Base: alocadas=%llu mapeadas=%llu tabelas=%llu",
         (unsigned long long)process_pages.allocated_pages, (unsigned long long)process_maps.mapped_pages,
         (unsigned long long)process_maps.table_pages);
+    storage_init();
     programs_init(modules.response);
     if (boot_option("selftest=elf")) elf_process_selftest();
     if (boot_option("selftest=diagnostics")) process_diagnostic_selftest();

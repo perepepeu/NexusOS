@@ -17,6 +17,7 @@
 #include <user_mode.h>
 #include <programs.h>
 #include <monitor.h>
+#include <ata.h>
 
 enum { LINE_SIZE = 128, HISTORY_SIZE = 8 };
 static const char prompt[] = "nexus> ";
@@ -281,12 +282,13 @@ static void command(char *line, const char *bootloader, const char *boot_version
         || equal(name, "memory") || equal(name, "meminfo") || equal(name, "memtest")
         || equal(name, "memmap") || equal(name, "pmm") || equal(name, "vmm") || equal(name, "heap")
         || equal(name, "ps") || equal(name, "threads") || equal(name, "spawn") || equal(name, "spawnuser") || equal(name, "sched") || equal(name, "sysdemo")
-        || equal(name, "programs") || equal(name, "elfdemo") || equal(name, "top");
+        || equal(name, "programs") || equal(name, "elfdemo") || equal(name, "top") || equal(name, "disks");
     if (!known) { put("Comando desconhecido: "); put(name); put(". Digite help.\n"); return; }
     if (*args) { put("Uso: "); put(name); put(" (sem argumentos).\n"); return; }
     if (equal(name, "help")) {
         put("Comandos: help clear echo version uptime sysinfo history\n");
         put("Energia: reboot shutdown\n");
+        put("Armazenamento: disks\n");
         put("Memoria: memory meminfo memmap pmm vmm heap memtest\n");
         put("Processos: ps threads spawn spawnuser kill PID wait PID sched\n");
         put("Usuario: sysdemo (programa interativo de syscalls em Ring 3)\n");
@@ -321,6 +323,7 @@ static void command(char *line, const char *bootloader, const char *boot_version
         if (pid) { put("Processo criado: "); number(pid, true); put(" (demo, duracao 5s)\n"); }
         else put("Falha ao criar processo: memoria ou slots insuficientes.\n");
     }
+    else if (equal(name, "disks")) storage_list();
     else if (equal(name, "memory") || equal(name, "meminfo")) memory_summary();
     else if (equal(name, "memtest")) {
         put("Memtest: teste limitado a 64 paginas proprias e blocos temporarios do heap.\n");

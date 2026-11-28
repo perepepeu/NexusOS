@@ -2,6 +2,8 @@
 
 ## Em desenvolvimento — auditoria de fundamentos
 
+- Driver ATA PIO com descoberta PCI IDE, IDENTIFY, LBA28/LBA48, leitura/escrita, flush e timeout; comando `disks`.
+
 - Camada generica de blocos com geometria, LBA/buffers validados, flush e progresso parcial.
 
 - Runtime freestanding completo para memoria/strings e panic com todos os GPRs/CS/SS.

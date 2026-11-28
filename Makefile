@@ -18,6 +18,7 @@ KERNEL_OBJECTS += build/kernel/elf64.o
 KERNEL_OBJECTS += build/kernel/programs.o
 KERNEL_OBJECTS += build/kernel/monitor.o
 KERNEL_OBJECTS += build/kernel/block.o
+KERNEL_OBJECTS += build/kernel/ata_core.o build/kernel/storage.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -263,6 +264,12 @@ check-block-unit:
 	build/tests/block
 
 .PHONY: check-console-unit
+check-ata-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/ata_test.c kernel/ata_core.c -o build/tests/ata
+	build/tests/ata
+
+.PHONY: check-ata-unit
 check-console-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Itests/host -Ikernel/include tests/console_test.c kernel/console.c -o build/tests/console
