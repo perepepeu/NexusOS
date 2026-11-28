@@ -20,6 +20,7 @@ KERNEL_OBJECTS += build/kernel/monitor.o
 KERNEL_OBJECTS += build/kernel/block.o
 KERNEL_OBJECTS += build/kernel/ata_core.o build/kernel/storage.o
 KERNEL_OBJECTS += build/kernel/storage_test.o
+KERNEL_OBJECTS += build/kernel/vfs_core.o build/kernel/ramfs.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -259,6 +260,12 @@ check-runtime-unit:
 	build/tests/runtime
 
 .PHONY: check-block-unit
+check-vfs-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/vfs_test.c kernel/vfs_core.c kernel/ramfs.c -o build/tests/vfs
+	build/tests/vfs
+
+.PHONY: check-vfs-unit
 check-block-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/block_test.c kernel/block.c -o build/tests/block
