@@ -2,6 +2,10 @@
 
 ## Em desenvolvimento
 
+- Diagnostico de ps/kill/run/top com dois ELFs CPU-bound e recuperacao apos page fault.
+- Tres ciclos de app com falha, sobrevivente, nova execucao e kill com PMM/VMM/heap/PCB/TCB restaurados.
+- Modulos busy/fault para experimentar CPU e encerramento seguro no terminal.
+
 - top basico: amostra de CPU por PID durante um segundo, ordenada por uso, incluindo Idle.
 - Percentuais sem overflow, PID independente de slot e testes ASan/UBSan do monitor.
 

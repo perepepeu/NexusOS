@@ -587,6 +587,45 @@ void elf_process_selftest(void) {
     log_info("test", "ELF: 9 protecoes na CPU, kernel ativo e memoria restaurada OK.");
 }
 
+void process_diagnostic_selftest(void) {
+    const struct boot_program *a = programs_find("alpha"), *b = programs_find("beta"), *fault = programs_find("fault");
+    KASSERT(a && b && fault && fault->validation == ELF64_OK);
+    struct pmm_stats before; struct vmm_stats vb; struct heap_stats hb, ha;
+    pmm_get_stats(&before); vmm_get_stats(&vb); heap_get_stats(&hb);
+    struct process_info processes[PROCESS_MAX]; struct thread_info threads[THREAD_MAX];
+    size_t pcbs = process_snapshot(processes, PROCESS_MAX), tcbs = thread_snapshot(threads, THREAD_MAX);
+    for (unsigned int cycle = 1; cycle <= 3; ++cycle) {
+        process_preempt_disable();
+        uint64_t survivor = process_create_elf(b->name, b->image, b->bytes, 0);
+        uint64_t bad = process_create_elf(fault->name, fault->image, fault->bytes, 0);
+        KASSERT(survivor && bad); process_preempt_enable();
+        int status; KASSERT(process_wait(bad, &status) && status == -270);
+        KASSERT(last_user_fault.pid == bad && last_user_fault.vector == 14 && last_user_fault.error == 4 && !last_user_fault.cr2);
+        int slot = process_core_find(&manager, survivor);
+        KASSERT(slot >= 0 && manager.processes[slot].info.state != PROCESS_TERMINATED);
+        uint64_t recovery = process_create_elf(a->name, a->image, a->bytes, 0); KASSERT(recovery && recovery != bad);
+        KASSERT(process_wait(survivor, &status) && status == 0);
+        KASSERT(process_wait(recovery, &status) && status == 0);
+        elf_memory_same(&before, &vb);
+        uint64_t victim = process_create_elf(a->name, a->image, a->bytes, 0); KASSERT(victim);
+        bool blocked = false;
+        for (unsigned int i = 0; i < 100 && !blocked; ++i) {
+            uint64_t flags = irq_save(); slot = process_core_find(&manager, victim);
+            blocked = slot >= 0 && manager.processes[slot].info.state == PROCESS_BLOCKED &&
+                manager.processes[slot].info.blocked_on == PROCESS_BLOCK_SLEEP;
+            irq_restore(flags); if (!blocked) process_sleep(1);
+        }
+        KASSERT(blocked && process_kill(victim, -9));
+        KASSERT(process_wait(victim, &status) && status == -9);
+        elf_memory_same(&before, &vb); heap_get_stats(&ha); heap_check();
+        KASSERT(hb.allocations == ha.allocations && hb.mapped_bytes == ha.mapped_bytes &&
+            hb.requested_bytes == ha.requested_bytes && hb.arenas == ha.arenas);
+        KASSERT(process_snapshot(processes, PROCESS_MAX) == pcbs && thread_snapshot(threads, THREAD_MAX) == tcbs);
+        log_info("test", "Diagnostico: ciclo=%u fault=-270 sobrevivente=0 recuperacao=0 kill=-9 memoria=OK", cycle);
+    }
+    log_info("test", "Diagnostico: 3 ciclos de fault/recuperacao/kill sem vazamentos OK.");
+}
+
 static volatile bool syscall_test_finished;
 static uint64_t syscall_test_pid;
 static volatile unsigned int syscall_sleep_observed;

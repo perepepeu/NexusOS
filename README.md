@@ -292,6 +292,7 @@ o texto digitado, sem interpretacao de aspas, pipes ou redirecionamentos.
 | `programs` | Lista os programas ELF64 fornecidos pelo Limine |
 | `run NOME` | Carrega um ELF64 em segundo plano e mostra seu PID |
 | `elfdemo` | Executa alpha e beta em conjunto e aguarda seus resultados |
+| `top` | Mede CPU por PID durante um segundo e volta ao prompt |
 
 O editor aceita 127 caracteres, insercao na posicao do cursor, Left/Right,
 Home/End, Delete, Backspace e Tab (quatro espacos). Up/Down navegam pelo
@@ -917,6 +918,25 @@ PIE, linker dinamico, TLS ou bibliotecas compartilhadas. Paginas compartilhadas
 entre segmentos, W+X, invasao da stack/guardas e entry invalido sao recusados.
 Veja [formato, limites e testes](docs/elf64.md). Os programas ELF sao arquivos
 na ISO, separados do kernel; imagens planas anteriores continuam disponiveis.
+
+## Testes e diagnostico
+
+ps, kill PID e run NOME permitem inspecionar, encerrar e executar processos.
+top mostra uma amostra de CPU durante um segundo, ordenada por uso e incluindo
+o Idle. A tabela usa ticks do PIT e preserva a identidade por PID.
+
+Os modulos adicionais busy e fault permitem exercitar preempcao e recuperacao.
+Execute run busy duas vezes, consulte ps/top e encerre os PIDs com kill e wait.
+run fault provoca um page fault de usuario; wait coleta -270 e o terminal
+continua funcionando. elfdemo deve executar normalmente depois dessa falha.
+
+```sh
+make check-diagnostics
+```
+
+Os testes repetem fault/recuperacao/kill, comparam PMM/VMM/heap e os numeros de
+PCB/TCB e exercitam os comandos pelo QMP em BIOS/UEFI com tres tamanhos de RAM.
+Veja [passo a passo e interpretacao dos resultados](docs/diagnostics.md).
 
 Referencias oficiais:
 - https://cdrdv2-public.intel.com/843827/253665-sdm-vol-1-dec-24.pdf

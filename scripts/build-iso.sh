@@ -10,7 +10,7 @@ trap 'rm -rf -- "$staging"' EXIT
 mkdir -p "$staging/boot/limine" "$staging/boot/programs" "$staging/EFI/BOOT"
 cp "$config" "$staging/boot/limine/limine.conf"
 cp build/kernel.elf "$staging/boot/kernel.elf"
-cp build/user/alpha.elf build/user/beta.elf "$staging/boot/programs/"
+cp build/user/alpha.elf build/user/beta.elf build/user/fault.elf build/user/busy.elf "$staging/boot/programs/"
 cp vendor/limine/limine-bios.sys vendor/limine/limine-bios-cd.bin \
     vendor/limine/limine-uefi-cd.bin "$staging/boot/limine/"
 cp vendor/limine/BOOTX64.EFI "$staging/EFI/BOOT/"

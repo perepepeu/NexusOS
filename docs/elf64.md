@@ -78,5 +78,9 @@ pagina zero e guardas. Cada fault encerra somente o PID e restaura os recursos.
 O teste exercita tambem elfdemo, run e wait no terminal, verificando os status
 e os contadores de PMM/VMM/heap ao final.
 
+A ISO inclui tambem os modulos busy (carga de CPU) e fault (page fault previsto)
+para os [testes de diagnostico](diagnostics.md). Eles so executam quando
+solicitados pelo terminal ou pelo perfil de autoteste.
+
 Referencias: [ELF gABI](https://gabi.xinuos.com/elf/08-pheader.html) e
 [configuracao Limine](https://github.com/Limine-Bootloader/Limine/blob/v12.x/CONFIG.md).

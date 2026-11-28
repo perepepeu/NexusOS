@@ -80,7 +80,7 @@ def type_keyboard_test(monitor_path):
     chord("esc")
 
 
-def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=False, heap=False, memtest=False, processes=False, process_log=None, scheduler=False, user=False, syscalls=False, interactive=False, elf=False):
+def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=False, heap=False, memtest=False, processes=False, process_log=None, scheduler=False, user=False, syscalls=False, interactive=False, elf=False, diagnostics=False):
     def chord(*keys):
         items = [(key, True) for key in keys] + [(key, False) for key in reversed(keys)]
         qmp_execute(monitor_path, "input-send-event", {"events": [
@@ -97,6 +97,32 @@ def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=
     def command(value):
         text(value); chord("ret")
 
+    if diagnostics:
+        def wait_log(wanted, timeout=10):
+            deadline = time.monotonic() + timeout
+            while wanted not in process_log.read_bytes():
+                if time.monotonic() >= deadline: raise RuntimeError(f"Diagnostico ausente: {wanted!r}")
+                time.sleep(0.03)
+        command("programs"); command("run busy"); command("run busy"); command("ps"); command("top")
+        wait_log(b"Top: amostra concluida.")
+        created = re.findall(rb"Processo ELF criado: (\d+) \(busy\)\r?\n", process_log.read_bytes())
+        if len(created) != 2 or created[0] == created[1]: raise RuntimeError("PIDs dos workers CPU invalidos")
+        for pid in created:
+            command("kill " + pid.decode()); wait_log(b"Processo encerrado: " + pid + b"\r\n")
+            command("wait " + pid.decode()); wait_log(b"Processo coletado: " + pid + b" status=-9")
+        command("kill 0"); command("kill 1"); command("kill 99999"); command("kill 18446744073709551616")
+        command("run fault")
+        deadline = time.monotonic() + 8
+        while True:
+            ids = re.findall(rb"Processo ELF criado: (\d+) \(fault\)\r?\n", process_log.read_bytes())
+            if ids: break
+            if time.monotonic() >= deadline: raise RuntimeError("PID completo de fault ausente")
+            time.sleep(0.03)
+        command("wait " + ids[-1].decode()); wait_log(b"Processo coletado: " + ids[-1] + b" status=-270")
+        command("elfdemo"); wait_log(b"ELF demo: alpha=0 beta=0")
+        command("top extra"); command("ps"); command("pmm"); command("vmm"); command("heap")
+        command("echo diagnostics-ok")
+        return
     if elf:
         command("programs"); command("elfdemo")
         deadline = time.monotonic() + 10
@@ -247,7 +273,7 @@ def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=
 
 def boot(mode, scenario, image, firmware, ram_mib=256):
     suffix = mode if scenario == "normal" else f"{scenario}-{mode}"
-    if scenario in ("memory", "pmm", "vmm", "heap", "memtest", "processes", "scheduler", "user", "user-faults", "syscalls", "sysread", "elf"): suffix = f"{scenario}-{ram_mib}-{mode}"
+    if scenario in ("memory", "pmm", "vmm", "heap", "memtest", "processes", "scheduler", "user", "user-faults", "syscalls", "sysread", "elf", "diagnostics"): suffix = f"{scenario}-{ram_mib}-{mode}"
     log = Path(f"build/boot-{suffix}.log")
     exceptions = {"divide": (0, "Divide error", "0x0"),
                   "opcode": (6, "Invalid opcode", "0x0"),
@@ -280,6 +306,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
               b"\r\nuser-ok\r\n" if scenario in ("user", "user-faults") else
               b"\r\nsyscalls-ok\r\n" if scenario in ("syscalls", "sysread") else
               b"\r\nelf-ok\r\n" if scenario == "elf" else
+              b"\r\ndiagnostics-ok\r\n" if scenario == "diagnostics" else
               b"Terminal pronto. Digite help.")
     with tempfile.TemporaryDirectory(prefix="nexus-qmp-") as directory:
         monitor_path = str(Path(directory) / "monitor.sock")
@@ -294,7 +321,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
         with log.open("wb") as output, subprocess.Popen(
                 command, stdout=output, stderr=subprocess.STDOUT) as process:
             try:
-                deadline = time.monotonic() + (60 if scenario in ("user-faults", "syscalls", "sysread", "elf") else 50 if scenario == "processes" else 40 if scenario in ("pmm", "scheduler", "user") else 20)
+                deadline = time.monotonic() + (100 if scenario == "diagnostics" else 60 if scenario in ("user-faults", "syscalls", "sysread", "elf") else 50 if scenario == "processes" else 40 if scenario in ("pmm", "scheduler", "user") else 20)
                 injected = False
                 read_phase = 0
                 while marker not in log.read_bytes():
@@ -355,6 +382,10 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                     if (scenario == "elf" and not injected and
                             b"Terminal pronto. Digite help." in log.read_bytes()):
                         type_terminal_test(monitor_path, elf=True, process_log=log)
+                        injected = True
+                    if (scenario == "diagnostics" and not injected and
+                            b"Terminal pronto. Digite help." in log.read_bytes()):
+                        type_terminal_test(monitor_path, diagnostics=True, process_log=log)
                         injected = True
                     time.sleep(0.1)
                 # O guest deve permanecer ativo, inclusive apos um panic.
@@ -594,6 +625,24 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
         if min(starts) < 0 or min(finishes) < max(starts):
             raise RuntimeError(f"Programas ELF nao executaram simultaneamente; consulte {log}")
         if b"[FATAL]" in text: raise RuntimeError(f"ELF causou panic; consulte {log}")
+    if scenario == "diagnostics":
+        required += [b"Diagnostico: 3 ciclos de fault/recuperacao/kill sem vazamentos OK.",
+                     b"Top: amostra concluida.", b"PID ESTADO CPU% TICKS MODO NOME", b"Uso: top (sem argumentos).",
+                     b"Processos preemptivos", b"Uso: kill PID (inteiro positivo).", b"ELF demo: alpha=0 beta=0",
+                     b"Alocacoes ativas: 0"] + memory_baseline
+        for cycle in range(1,4):
+            required += [f"Diagnostico: ciclo={cycle} fault=-270 sobrevivente=0 recuperacao=0 kill=-9 memoria=OK".encode()]
+        workers = re.findall(rb"Processo ELF criado: (\d+) \(busy\)", text)
+        if len(workers) != 2 or workers[0] == workers[1]: raise RuntimeError(f"Workers CPU invalidos; consulte {log}")
+        for pid in workers:
+            match = re.search(rb"(?:^|\n)" + pid + rb" READY (\d+)\.(\d)% (\d+) R3 busy\r?\n", text)
+            if not match or int(match[1])*10 + int(match[2]) == 0 or int(match[3]) == 0:
+                raise RuntimeError(f"Top nao mediu CPU do PID {pid!r}; consulte {log}")
+            required += [b"Processo coletado: " + pid + b" status=-9"]
+        faults = re.findall(rb"Processo ELF criado: (\d+) \(fault\)", text)
+        if len(faults) != 1: raise RuntimeError(f"run fault falhou; consulte {log}")
+        required += [b"Processo coletado: " + faults[0] + b" status=-270"]
+        if b"[FATAL]" in text: raise RuntimeError(f"Falha de app derrubou kernel; consulte {log}")
     if any(message not in text for message in required):
         raise RuntimeError(f"Diagnostico incompleto; consulte {log}")
     print(f"OK: {scenario}/{mode}, serial e framebuffer; log: {log}", flush=True)
@@ -618,12 +667,13 @@ def main():
     group.add_argument("--user", action="store_true", help="Testa Ring 3, CR3 privados, TSS e INT80.")
     group.add_argument("--syscalls", action="store_true", help="Testa ABI C/Assembly, buffers, write/read/sleep e terminal em CPL3.")
     group.add_argument("--elf", action="store_true", help="Testa programas ELF64 de modulos Limine em CPL3.")
+    group.add_argument("--diagnostics", action="store_true", help="Testa ps/kill/run/top, CPU, recuperacao e vazamentos.")
     parser.add_argument("--quick", action="store_true", help="Executa uma configuracao de RAM por cenario, mantendo BIOS/UEFI.")
     args = parser.parse_args()
     Path("build").mkdir(exist_ok=True)
     firmware = Path("/usr/share/OVMF/OVMF_CODE_4M.fd")
     if not firmware.is_file(): raise SystemExit("OVMF ausente: instale o pacote ovmf.")
-    scenarios = (("elf",) if args.elf else ("syscalls", "sysread") if args.syscalls else ("user", "user-faults") if args.user else ("scheduler",) if args.scheduler else ("processes", "process-guard") if args.processes else ("memtest",) if args.memtest else ("access-null", "access-guard-low", "access-guard-high", "access-unmapped", "access-overflow",
+    scenarios = (("diagnostics",) if args.diagnostics else ("elf",) if args.elf else ("syscalls", "sysread") if args.syscalls else ("user", "user-faults") if args.user else ("scheduler",) if args.scheduler else ("processes", "process-guard") if args.processes else ("memtest",) if args.memtest else ("access-null", "access-guard-low", "access-guard-high", "access-unmapped", "access-overflow",
                   "access-underflow", "access-freed", "access-doublefree", "access-badfree", "access-nx") if args.access else
                  ("heap",) if args.heap else ("vmm", "vmm-unmapped", "vmm-readonly", "vmm-nx") if args.vmm else
                  ("pmm",) if args.pmm else ("memory",) if args.memory else ("terminal", "terminal-limits") if args.terminal else
@@ -643,7 +693,7 @@ def main():
                 raise RuntimeError(result.stdout.decode(errors="replace"))
         for mode in ("bios", "uefi"):
             previous = 0
-            sizes = (128, 512, 5120) if args.memory or args.pmm or scenario in ("vmm", "heap", "memtest", "processes", "scheduler", "user", "user-faults", "syscalls", "sysread", "elf") else (256,)
+            sizes = (128, 512, 5120) if args.memory or args.pmm or scenario in ("vmm", "heap", "memtest", "processes", "scheduler", "user", "user-faults", "syscalls", "sysread", "elf", "diagnostics") else (256,)
             for size in (sizes[:1] if args.quick else sizes):
                 detected = boot(mode, scenario, image, firmware, size)
                 if args.memory:

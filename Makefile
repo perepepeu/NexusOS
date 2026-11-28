@@ -67,13 +67,19 @@ build/user/elf_start.o: user/elf_start.asm build/include/syscall_abi.inc Makefil
 	mkdir -p $(@D)
 	$(AS) $(ASFLAGS) -Ibuild/include/ $< -o $@
 
-build/user/elf_alpha.o build/user/elf_beta.o: user/include/elf_runtime.h
+build/user/elf_alpha.o build/user/elf_beta.o build/user/elf_fault.o build/user/elf_busy.o: user/include/elf_runtime.h
 
 build/user/alpha.elf: build/user/elf_alpha.o build/user/elf_start.o user/elf_linker.ld
 	$(LD) -nostdlib -m elf_x86_64 -z max-page-size=0x1000 -T user/elf_linker.ld build/user/elf_start.o build/user/elf_alpha.o -o $@
 
 build/user/beta.elf: build/user/elf_beta.o build/user/elf_start.o user/elf_linker.ld
 	$(LD) -nostdlib -m elf_x86_64 -z max-page-size=0x1000 -T user/elf_linker.ld build/user/elf_start.o build/user/elf_beta.o -o $@
+
+build/user/fault.elf: build/user/elf_fault.o build/user/elf_start.o user/elf_linker.ld
+	$(LD) -nostdlib -m elf_x86_64 -z max-page-size=0x1000 -T user/elf_linker.ld build/user/elf_start.o build/user/elf_fault.o -o $@
+
+build/user/busy.elf: build/user/elf_busy.o build/user/elf_start.o user/elf_linker.ld
+	$(LD) -nostdlib -m elf_x86_64 -z max-page-size=0x1000 -T user/elf_linker.ld build/user/elf_start.o build/user/elf_busy.o -o $@
 
 build/user/syscall_registers.o: user/syscall_registers.asm build/include/syscall_abi.inc Makefile
 	mkdir -p $(@D)
@@ -98,7 +104,7 @@ build/kernel/user_mode.o: kernel/user_mode.asm toolchain.mk Makefile build/inclu
 build/kernel.elf: $(KERNEL_OBJECTS) kernel/linker.ld | check-kernel-arch
 	$(LD) $(LDFLAGS) -z max-page-size=0x1000 -T kernel/linker.ld $(KERNEL_OBJECTS) -o $@
 
-iso: kernel setup-limine build/user/alpha.elf build/user/beta.elf
+iso: kernel setup-limine build/user/alpha.elf build/user/beta.elf build/user/fault.elf build/user/busy.elf
 	bash scripts/build-iso.sh
 
 run: iso
@@ -232,6 +238,10 @@ check-monitor-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/monitor_test.c kernel/monitor.c -o build/tests/monitor
 	build/tests/monitor
+
+.PHONY: check-diagnostics
+check-diagnostics: iso check-monitor-unit
+	python3 scripts/check-kernel.py --diagnostics
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader
