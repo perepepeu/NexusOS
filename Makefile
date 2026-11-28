@@ -23,6 +23,7 @@ KERNEL_OBJECTS += build/kernel/storage_test.o
 KERNEL_OBJECTS += build/kernel/vfs_core.o build/kernel/ramfs.o
 KERNEL_OBJECTS += build/kernel/vfs.o build/kernel/vfs_terminal.o build/kernel/vfs_test.o
 KERNEL_OBJECTS += build/kernel/bootfs_core.o build/kernel/bootfs.o
+KERNEL_OBJECTS += build/kernel/fat32.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -262,6 +263,12 @@ check-runtime-unit:
 	build/tests/runtime
 
 .PHONY: check-ramfs-unit
+check-fat32-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/fat32_test.c kernel/fat32.c kernel/vfs_core.c kernel/block.c -o build/tests/fat32
+	build/tests/fat32
+
+.PHONY: check-fat32-unit
 check-ramfs-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/ramfs_boot_test.c kernel/vfs_core.c kernel/ramfs.c -o build/tests/ramfs-boot
