@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 suites = [
+    ("storage", ["scripts/check-storage.py"]),
     ("diagnostics", ["scripts/check-kernel.py", "--diagnostics"]),
     ("scheduler", ["scripts/check-kernel.py", "--scheduler"]),
     ("user", ["scripts/check-kernel.py", "--user", "--quick"]),

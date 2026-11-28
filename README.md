@@ -5,6 +5,10 @@ Versao atual: **0.3**. A versao fica registrada em `VERSION` e na tag Git
 
 Download: [Release v0.3](https://github.com/perepepeu/NexusOS/releases/tag/v0.3).
 
+Em desenvolvimento apos v0.3: [driver de armazenamento ATA PIO](docs/storage.md).
+Use `disks` no terminal para listar os dispositivos e `make check-storage` no
+WSL para testar leitura/escrita em discos virtuais descartaveis.
+
 ## Compilador C e Assembly
 
 Ambiente: Ubuntu 24.04 no WSL 2, com GCC 13, NASM 2.16 e GNU Binutils.

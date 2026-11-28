@@ -19,6 +19,7 @@ KERNEL_OBJECTS += build/kernel/programs.o
 KERNEL_OBJECTS += build/kernel/monitor.o
 KERNEL_OBJECTS += build/kernel/block.o
 KERNEL_OBJECTS += build/kernel/ata_core.o build/kernel/storage.o
+KERNEL_OBJECTS += build/kernel/storage_test.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -263,13 +264,17 @@ check-block-unit:
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/block_test.c kernel/block.c -o build/tests/block
 	build/tests/block
 
-.PHONY: check-console-unit
+.PHONY: check-ata-unit
 check-ata-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/ata_test.c kernel/ata_core.c -o build/tests/ata
 	build/tests/ata
 
-.PHONY: check-ata-unit
+.PHONY: check-storage
+check-storage: iso check-block-unit check-ata-unit
+	python3 scripts/check-storage.py
+
+.PHONY: check-console-unit
 check-console-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Itests/host -Ikernel/include tests/console_test.c kernel/console.c -o build/tests/console
@@ -286,7 +291,7 @@ check-diagnostics: iso check-monitor-unit
 	python3 scripts/check-kernel.py --diagnostics
 
 .PHONY: check-release
-check-release: iso check-acpi check-memory-unit check-pmm-unit check-vmm-unit check-heap-unit check-processes-unit check-resources-unit check-scheduler-unit check-address-space-unit check-elf-unit check-monitor-unit check-runtime-unit check-console-unit
+check-release: iso check-acpi check-memory-unit check-pmm-unit check-vmm-unit check-heap-unit check-processes-unit check-resources-unit check-scheduler-unit check-address-space-unit check-elf-unit check-monitor-unit check-runtime-unit check-console-unit check-block-unit check-ata-unit
 	python3 scripts/check-release.py
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.

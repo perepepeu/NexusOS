@@ -32,4 +32,5 @@ struct block_result ata_flush(struct ata_drive *);
 void storage_init(void);
 void storage_list(void);
 void storage_selftest(bool verify);
+void storage_error_selftest(unsigned int operation);
 #endif

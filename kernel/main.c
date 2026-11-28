@@ -248,6 +248,11 @@ void kmain(void) {
         (unsigned long long)process_pages.allocated_pages, (unsigned long long)process_maps.mapped_pages,
         (unsigned long long)process_maps.table_pages);
     storage_init();
+    if(boot_option("selftest=storage")) storage_selftest(false);
+    if(boot_option("selftest=storage-verify")) storage_selftest(true);
+    if(boot_option("selftest=storage-error-read")) storage_error_selftest(1);
+    if(boot_option("selftest=storage-error-write")) storage_error_selftest(2);
+    if(boot_option("selftest=storage-error-flush")) storage_error_selftest(3);
     programs_init(modules.response);
     if (boot_option("selftest=elf")) elf_process_selftest();
     if (boot_option("selftest=diagnostics")) process_diagnostic_selftest();

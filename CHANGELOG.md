@@ -3,6 +3,7 @@
 ## Em desenvolvimento — auditoria de fundamentos
 
 - Driver ATA PIO com descoberta PCI IDE, IDENTIFY, LBA28/LBA48, leitura/escrita, flush e timeout; comando `disks`.
+- Testes de armazenamento em discos descartaveis: BIOS/UEFI, multiplos discos, LBA alto, persistencia e erros de I/O com blkdebug.
 
 - Camada generica de blocos com geometria, LBA/buffers validados, flush e progresso parcial.
 
