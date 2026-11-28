@@ -18,6 +18,7 @@
 #include <programs.h>
 #include <monitor.h>
 #include <ata.h>
+#include <vfs.h>
 
 enum { LINE_SIZE = 128, HISTORY_SIZE = 8 };
 static const char prompt[] = "nexus> ";
@@ -244,6 +245,7 @@ static void command(char *line, const char *bootloader, const char *boot_version
     if (*args) *args++ = 0;
     while (*args == ' ' || *args == '\t') ++args;
     if (equal(name, "echo")) { put(args); put("\n"); return; }
+    if (vfs_terminal_command(name,args)) return;
     if (equal(name, "run")) {
         char *end = args;
         while (*end && *end != ' ' && *end != '\t') ++end;
@@ -289,6 +291,7 @@ static void command(char *line, const char *bootloader, const char *boot_version
         put("Comandos: help clear echo version uptime sysinfo history\n");
         put("Energia: reboot shutdown\n");
         put("Armazenamento: disks\n");
+        put("Arquivos: pwd cd ls mkdir cat write append mount umount vfsinfo\n");
         put("Memoria: memory meminfo memmap pmm vmm heap memtest\n");
         put("Processos: ps threads spawn spawnuser kill PID wait PID sched\n");
         put("Usuario: sysdemo (programa interativo de syscalls em Ring 3)\n");

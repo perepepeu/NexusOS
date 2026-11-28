@@ -12,6 +12,7 @@
 #include <syscall.h>
 #include <elf64.h>
 #include <programs.h>
+#include <vfs.h>
 
 enum { STACK_PAGES = 4, STACK_STRIDE = 6 * 4096 };
 static struct process_manager manager;
@@ -43,6 +44,7 @@ static void reap_stacks(void) {
         if (manager.processes[i].used && manager.processes[i].info.state == PROCESS_TERMINATED &&
                 manager.processes[i].info.pid != process_current_pid()) {
             process_resources_reap(manager.processes[i].info.pid);
+            vfs_process_reap(manager.processes[i].info.pid);
             if (manager.processes[i].space) {
                 KASSERT(address_space_destroy(manager.processes[i].space)); manager.processes[i].space = 0;
             }

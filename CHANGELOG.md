@@ -2,6 +2,8 @@
 
 ## Em desenvolvimento — auditoria de fundamentos
 
+- VFS generico e RAMFS: caminhos absolutos/relativos, ./.., montagem/desmontagem segura, descritores e cwd por PID, offsets e append serializados entre threads/processos.
+
 - Driver ATA PIO com descoberta PCI IDE, IDENTIFY, LBA28/LBA48, leitura/escrita, flush e timeout; comando `disks`.
 - Testes de armazenamento em discos descartaveis: BIOS/UEFI, multiplos discos, LBA alto, persistencia e erros de I/O com blkdebug.
 

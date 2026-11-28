@@ -14,6 +14,7 @@ enum kernel_error {
     ERR_HEAP = 9,
     ERR_MEMORY_ACCESS = 10,
     ERR_PROCESS = 11,
+    ERR_VFS = 12,
 };
 
 struct interrupt_frame;

@@ -21,6 +21,7 @@ KERNEL_OBJECTS += build/kernel/block.o
 KERNEL_OBJECTS += build/kernel/ata_core.o build/kernel/storage.o
 KERNEL_OBJECTS += build/kernel/storage_test.o
 KERNEL_OBJECTS += build/kernel/vfs_core.o build/kernel/ramfs.o
+KERNEL_OBJECTS += build/kernel/vfs.o build/kernel/vfs_terminal.o build/kernel/vfs_test.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -266,6 +267,10 @@ check-vfs-unit:
 	build/tests/vfs
 
 .PHONY: check-vfs-unit
+check-vfs: iso check-vfs-unit
+	python3 scripts/check-vfs.py
+
+.PHONY: check-vfs
 check-block-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/block_test.c kernel/block.c -o build/tests/block
