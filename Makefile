@@ -261,6 +261,12 @@ check-runtime-unit:
 	build/tests/runtime
 
 .PHONY: check-vfs-unit
+check-ramfs-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/ramfs_boot_test.c kernel/vfs_core.c kernel/ramfs.c -o build/tests/ramfs-boot
+	build/tests/ramfs-boot
+
+.PHONY: check-ramfs-unit
 check-vfs-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/vfs_test.c kernel/vfs_core.c kernel/ramfs.c -o build/tests/vfs
