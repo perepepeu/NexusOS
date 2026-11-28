@@ -17,7 +17,7 @@ volume montado e `/boot/modules` expoe os modulos Limine em um terceiro volume
 somente de leitura. Veja [RAMFS e inicializacao](ramfs.md).
 `/etc/motd` contem uma mensagem de demonstracao. Os dados ficam
 na RAM e desaparecem ao reiniciar. Montar um volume nao formata discos nem
-interpreta automaticamente particoes: um futuro backend FAT/ext2/etc. podera
+interpreta automaticamente particoes: o [backend FAT32 de leitura](fat32.md) pode
 usar `vfs_volume.device` para acessar a camada de blocos ja implementada.
 
 ## Experimentar no terminal do NexusOS

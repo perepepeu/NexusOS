@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 suites = [
+    ("fat32", ["scripts/check-fat32.py"]),
     ("ramfs", ["scripts/check-ramfs.py"]),
     ("vfs", ["scripts/check-vfs.py"]),
     ("storage", ["scripts/check-storage.py"]),

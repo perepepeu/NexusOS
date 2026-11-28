@@ -18,6 +18,7 @@
 #include <ata.h>
 #include <vfs.h>
 #include <bootfs.h>
+#include <fat32.h>
 
 volatile uint64_t boot_bss_probe[8];
 volatile uint64_t boot_data_probe = 0x4e455855534f5321ull;
@@ -253,6 +254,9 @@ void kmain(void) {
     if(!vfs_init()) PANIC(ERR_VFS,"Nao foi possivel iniciar o VFS.");
     if(!bootfs_init(modules.response)) PANIC(ERR_VFS,"Nao foi possivel montar os modulos de inicializacao.");
     if(boot_option("selftest=bootfs")) bootfs_selftest();
+    if(boot_option("selftest=fat32")) fat32_selftest(false,0,0);
+    if(boot_option("selftest=fat32-invalid")) fat32_selftest(true,0,0);
+    if(boot_option("selftest=fat32-offset")) fat32_selftest(false,2048,131072);
     if(boot_option("selftest=vfs")) vfs_selftest();
     if(boot_option("selftest=storage")) storage_selftest(false);
     if(boot_option("selftest=storage-verify")) storage_selftest(true);

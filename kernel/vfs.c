@@ -36,6 +36,13 @@ enum vfs_error vfs_chdir(const char *p) { CALL(vfs_core_chdir(&state,process_cur
 enum vfs_error vfs_getcwd(char *p,size_t n) { CALL(vfs_core_getcwd(&state,process_current_pid(),p,n)); }
 enum vfs_error vfs_mount(const char *p,struct vfs_volume *v) { CALL(vfs_core_mount(&state,process_current_pid(),p,v)); }
 enum vfs_error vfs_unmount(const char *p) { CALL(vfs_core_unmount(&state,process_current_pid(),p)); }
+enum vfs_error vfs_volume_mounted(const struct vfs_volume *volume,bool *mounted) {
+    if(!volume || !mounted) return VFS_INVALID;
+    if(!enter()) return VFS_CONTEXT;
+    *mounted=false;
+    for(unsigned int i=0;i<VFS_MOUNTS;++i) if(state.mounts[i].used && state.mounts[i].volume==volume) *mounted=true;
+    leave(); return VFS_OK;
+}
 void vfs_get_stats(struct vfs_stats *out) {
     if(!out) return;
     *out=(struct vfs_stats){0};

@@ -111,5 +111,7 @@ int main(void) {
     r=vfs_core_read(&v,1,fd,buffer,sizeof buffer); assert(r.error==VFS_IO && r.count==512);
     assert(!vfs_core_seek(&v,1,fd,0,VFS_SEEK_CUR,&pos) && pos==512);
     setup(4096); assert(!fat32_open(&fs,&disk,17,70000) && fs.geometry.sector_size==4096 && fs.geometry.cluster_size==4096);
+    assert(!vfs_core_init(&v,&fs.volume)); assert(!vfs_core_open(&v,1,"/TAIL.TXT",VFS_READ,&fd));
+    r=vfs_core_read(&v,1,fd,buffer,sizeof buffer); assert(!r.error && r.count==4 && !memcmp(buffer,"tail",4));
     puts("OK: FAT32 BPB/geometria/FSInfo, FAT ativa, 8.3/LFN, diretorios fragmentados, arquivos fragmentados, corrupcao e ciclos.");
 }

@@ -34,5 +34,5 @@ enum fat32_error fat32_open(struct fat32 *,const struct block_device *,uint64_t 
 enum fat32_error fat32_chain(struct fat32 *,uint32_t first,uint32_t *length);
 const char *fat32_error_name(enum fat32_error);
 bool fat32_terminal_command(const char *,const char *);
-void fat32_selftest(bool invalid);
+void fat32_selftest(bool invalid,uint64_t start,uint64_t length);
 #endif

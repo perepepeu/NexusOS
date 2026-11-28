@@ -2,6 +2,9 @@
 
 ## Em desenvolvimento — auditoria de fundamentos
 
+- FAT32 somente leitura integrado ao VFS: BPB, geometria, FSInfo, FAT ativa, nomes 8.3, alias de LFN e leitura fragmentada com deteccao de cadeias invalidas/circulares; comandos `mountfat` e `fatinfo`.
+- Testes FAT32 com ASan/UBSan, imagens mtools e QEMU BIOS/UEFI; volume em LBA nao zero, corrupcao e verificacao de imagem/contadores sem escrita.
+
 - RAMFS importa arquivos imutaveis da memoria de boot sem o limite de 4 KiB dos arquivos gravaveis; modulos Limine montados em `/boot/modules`, com validacao de nomes, duplicatas, limites e fallback quando ausentes.
 - Testes de inicializacao RAMFS em BIOS/UEFI com comparacao integral dos modulos, tamanho/hash, protecao de escrita e verificacao de descritores.
 

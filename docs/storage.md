@@ -112,5 +112,6 @@ Referencia de protocolo: [T13 ATA/ATAPI Command Set](https://read.seas.harvard.e
 especialmente IDENTIFY DEVICE, READ/WRITE SECTOR(S) EXT e FLUSH CACHE.
 Descoberta do PIIX conferida com o [codigo oficial do QEMU](https://github.com/qemu/qemu/blob/v8.2.2/hw/ide/piix.c).
 
-Esta etapa fornece acesso a blocos. Particoes, sistema de arquivos e programas
-carregados do disco ainda nao fazem parte dela.
+Esta camada fornece acesso a blocos. O [driver FAT32 de leitura](fat32.md)
+agora permite montar volumes conhecidos no VFS. A descoberta automatica de
+particoes e programas carregados do disco ficam para outras etapas.

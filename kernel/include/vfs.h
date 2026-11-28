@@ -59,6 +59,7 @@ enum vfs_error vfs_chdir(const char *);
 enum vfs_error vfs_getcwd(char *,size_t);
 enum vfs_error vfs_mount(const char *,struct vfs_volume *);
 enum vfs_error vfs_unmount(const char *);
+enum vfs_error vfs_volume_mounted(const struct vfs_volume *,bool *);
 void vfs_get_stats(struct vfs_stats *);
 /* Scheduler-only: IRQs/preemption disabled, no backend I/O or callbacks. */
 void vfs_process_reap(uint64_t);

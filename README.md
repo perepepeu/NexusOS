@@ -18,6 +18,10 @@ Os modulos de inicializacao do Limine aparecem em `/boot/modules`, somente
 para leitura. Use `ls /boot/modules` no NexusOS e `make check-ramfs` no WSL.
 Veja [RAMFS e inicializacao](docs/ramfs.md).
 
+[FAT32 em modo de leitura](docs/fat32.md): `mountfat ata0 /mnt`, `ls /mnt`,
+`cat /mnt/ARQUIVO.TXT`, `fatinfo` e `umount /mnt`. Testes descartaveis:
+`make check-fat32` (requer mtools no WSL).
+
 ## Compilador C e Assembly
 
 Ambiente: Ubuntu 24.04 no WSL 2, com GCC 13, NASM 2.16 e GNU Binutils.
