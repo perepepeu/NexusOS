@@ -2,6 +2,8 @@
 
 ## Em desenvolvimento — auditoria de fundamentos
 
+- Camada generica de blocos com geometria, LBA/buffers validados, flush e progresso parcial.
+
 - Runtime freestanding completo para memoria/strings e panic com todos os GPRs/CS/SS.
 - Framebuffer com limites explicitos, formatos RGB sem mascaras sobrepostas e testes de padding/rolagem.
 - GDB real em BIOS/UEFI, stack ABI e probes de inicializacao DATA/BSS.
