@@ -35,6 +35,12 @@ fornece um catalogo somente de leitura ao kernel. As paginas dos modulos
 permanecem reservadas no mapa fisico; codigo/dados de cada processo sao copias
 privadas. Nao e necessario initramfs nesta etapa.
 
+O loader tambem recebe arquivos pelo VFS: `run /mnt/PROGRAMA.ELF` pode carregar
+um ELF do FAT32 ou RAMFS. A leitura usa uma copia temporaria de ate 1 MiB,
+fecha o descritor e libera a copia apos criar o processo ou ao falhar. O mesmo
+validador ELF e isolamento de paginas sao aplicados; veja os testes de
+[arquivos e processos](fs-integration.md). O processo inicia com cwd `/`.
+
 Os dois executaveis possuem fontes C distintas e tres PT_LOAD: RX para texto,
 RO/NX para constantes e RW/NX para dados/BSS. Ambos usam os mesmos enderecos
 virtuais para globais, mas valores e frames diferentes. O entry point e
@@ -48,14 +54,16 @@ programs
 elfdemo
 run alpha
 run beta
+run /mnt/PROGRAMA.ELF
 ps
 wait PID
 ```
 
 programs lista o catalogo. elfdemo cria alpha/beta antes de permitir que
 executem, aguarda ambos e mostra seus status. run NOME cria um processo em
-segundo plano; use o PID mostrado em wait para coletar o resultado. Nomes
-desconhecidos, argumentos extras e arquivos invalidos sao recusados.
+segundo plano; use o PID mostrado em wait para coletar o resultado. Um nome
+fora do catalogo e resolvido como caminho absoluto ou relativo pelo VFS.
+Caminhos inexistentes, argumentos extras e arquivos invalidos sao recusados.
 
 Testes:
 

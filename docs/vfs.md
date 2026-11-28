@@ -15,6 +15,10 @@ Implementacao posterior a v0.3, sem nova versao publicada.
 O primeiro backend e RAMFS. A raiz `/` e um volume, `/tmp` inicia com outro
 volume montado e `/boot/modules` expoe os modulos Limine em um terceiro volume
 somente de leitura. Veja [RAMFS e inicializacao](ramfs.md).
+
+As [syscalls de arquivos](syscalls.md) usam as mesmas tabelas por PID.
+O terminal tambem oferece touch/cp/df, listagem de montagens e execucao de
+ELFs pelo caminho. Veja [integracao e testes de estabilidade](fs-integration.md).
 `/etc/motd` contem uma mensagem de demonstracao. Os dados ficam
 na RAM e desaparecem ao reiniciar. Montar um volume nao formata discos nem
 interpreta automaticamente particoes: o [backend FAT32 de leitura](fat32.md) pode

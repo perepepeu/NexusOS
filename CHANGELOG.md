@@ -2,6 +2,12 @@
 
 ## Em desenvolvimento — auditoria de fundamentos
 
+- Syscalls open/close/seek/stat/mkdir/unlink/readdir e read/write em arquivos; chdir/getcwd/sync, ponteiros validados, modos de acesso e descritores por PID liberados em exit/kill/excecao.
+- Carregamento de ELF64 diretamente pelo VFS e `run CAMINHO`, incluindo arquivos FAT32 fragmentados; rollback de arquivos invalidos e buffers temporarios.
+- Comandos touch/cp/df e listagem de montagens; copia entre volumes e protecao contra copiar sobre o proprio arquivo.
+- Testes reais em Ring 3 sobre RAMFS e FAT32: concorrencia, append, cleanup, comandos, persistencia e leitura externa por mtools/fsck.fat, em BIOS/UEFI.
+- Corte forcado de QEMU durante gravacao, recusa de RW no volume dirty, leitura preservada e retorno a RW apos reparo externo com fsck.fat; sem journal ou reparo automatico no kernel.
+
 - FAT32 gravavel opt-in com `mountfatrw`: alocacao/liberacao, FATs espelhadas/ativa, FSInfo, arquivos/diretorios, append, truncate, rename/move, exclusao e sync/flush.
 - VFS ganhou rename/remove/resize/sync, protecao de referencias/montagens e comandos `mv`, `rm`, `rmdir`, `truncate`, `sync`; reboot/shutdown sincronizam volumes.
 - Escrita FAT32 usa preflight de capacidade, metadados preparados em RAM, ordenacao de gravacao e bloqueio apos falha de I/O; LFN e atributo somente leitura sao respeitados nas mutacoes.

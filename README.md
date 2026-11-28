@@ -26,6 +26,12 @@ Para [escrita FAT32](docs/fat32-write.md), use `mountfatrw ata0 /mnt`.
 Estao disponiveis `write`, `append`, `mkdir`, `truncate`, `mv`, `rm`, `rmdir`
 e `sync`. Testes: `make check-fat32-write` (mtools e dosfstools).
 
+[Arquivos, processos e ELF no disco](docs/fs-integration.md): syscalls de
+arquivos com ponteiros validados e descritores por PID, comandos `touch`, `cp`,
+`df` e listagem com `mount`. `run /mnt/PROGRAMA.ELF` executa um ELF64 do FAT32.
+Testes: `make check-fs-syscalls` e `make check-fs-integration`; incluem processos
+Ring 3, comandos, persistencia e recuperacao com fsck.fat externo apos corte.
+
 ## Compilador C e Assembly
 
 Ambiente: Ubuntu 24.04 no WSL 2, com GCC 13, NASM 2.16 e GNU Binutils.
