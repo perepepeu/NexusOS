@@ -50,6 +50,8 @@ int main(void) {
     assert(vfs_core_stat(&v,1,"hello/",&st)==VFS_NOT_DIR);
     assert(vfs_core_stat(&v,1,"",&st)==VFS_INVALID);
     assert(vfs_core_mkdir(&v,1,"missing/child")==VFS_NOT_FOUND);
+    assert(vfs_core_mkdir(&v,1,"missing/.")==VFS_NOT_FOUND);
+    assert(vfs_core_mkdir(&v,1,"missing/..")==VFS_NOT_FOUND);
     assert(vfs_core_mkdir(&v,1,"hello/sub")==VFS_NOT_DIR);
     int temporary;
     assert(vfs_core_open(&v,1,"hello",VFS_READ|VFS_CREATE|VFS_EXCLUSIVE,&temporary)==VFS_EXISTS);
@@ -110,6 +112,9 @@ int main(void) {
     assert(r.error==VFS_NO_SPACE && r.count==RAMFS_FILE_SIZE);
     ok(vfs_core_seek(&v,1,fd,0,VFS_SEEK_CUR,&position)); assert(position==RAMFS_FILE_SIZE);
     assert(vfs_core_write(&v,1,fd,"x",1).error==VFS_NO_SPACE);
+    int full_append=open_file(2,"/f",VFS_WRITE|VFS_APPEND);
+    r=vfs_core_write(&v,2,full_append,"x",1); assert(r.error==VFS_NO_SPACE && !r.count);
+    ok(vfs_core_seek(&v,2,full_append,0,VFS_SEEK_CUR,&position)); assert(position==0);
     vfs_core_reap(&v,1); vfs_core_reap(&v,2);
     for(unsigned int i=1;i<=VFS_PROCESSES;++i) cwd(i,"/");
     assert(vfs_core_getcwd(&v,VFS_PROCESSES+1,buffer,sizeof buffer)==VFS_NO_SPACE);
@@ -120,5 +125,16 @@ int main(void) {
         ok(vfs_core_mkdir(&v,1,name)); ok(vfs_core_mount(&v,1,name,&extra[i].volume));
     }
     ok(vfs_core_mkdir(&v,1,"/full")); assert(vfs_core_mount(&v,1,"/full",&a.volume)==VFS_NO_SPACE);
+    reset();
+    for(unsigned int i=1;i<RAMFS_NODES;++i) {
+        char name[16]; snprintf(name,sizeof name,"/n%u",i); ok(vfs_core_mkdir(&v,1,name));
+    }
+    assert(vfs_core_mkdir(&v,1,"/overflow")==VFS_NO_SPACE);
+    assert(vfs_core_stat(&v,1,"/overflow",&st)==VFS_NOT_FOUND);
+    /* Short getcwd output is untouched; retry with a sufficient buffer. */
+    ok(vfs_core_chdir(&v,1,"/n1")); strcpy(buffer,"sentinel");
+    assert(vfs_core_getcwd(&v,1,buffer,2)==VFS_NAME_LONG && !strcmp(buffer,"sentinel"));
+    cwd(1,"/n1"); vfs_core_reap(&v,1); vfs_core_reap(&v,1);
+    vfs_core_stats(&v,&stats); assert(stats.mounts==1 && !stats.descriptors && !stats.sessions);
     puts("OK: VFS caminhos, ./.., mounts aninhados, unmount seguro, FDs/PID, offsets, append, limites e reap.");
 }

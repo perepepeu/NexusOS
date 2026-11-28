@@ -260,17 +260,17 @@ check-runtime-unit:
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-builtin -Ikernel/include -Dmemset=nexus_memset -Dmemcpy=nexus_memcpy -Dmemmove=nexus_memmove -Dmemcmp=nexus_memcmp -Dstrlen=nexus_strlen -Dstrcmp=nexus_strcmp -Dstrncmp=nexus_strncmp -Dstrcpy=nexus_strcpy -Dstrncpy=nexus_strncpy tests/runtime_test.c kernel/runtime.c -o build/tests/runtime
 	build/tests/runtime
 
-.PHONY: check-block-unit
+.PHONY: check-vfs-unit
 check-vfs-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/vfs_test.c kernel/vfs_core.c kernel/ramfs.c -o build/tests/vfs
 	build/tests/vfs
 
-.PHONY: check-vfs-unit
+.PHONY: check-vfs
 check-vfs: iso check-vfs-unit
 	python3 scripts/check-vfs.py
 
-.PHONY: check-vfs
+.PHONY: check-block-unit
 check-block-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/block_test.c kernel/block.c -o build/tests/block
@@ -303,7 +303,7 @@ check-diagnostics: iso check-monitor-unit
 	python3 scripts/check-kernel.py --diagnostics
 
 .PHONY: check-release
-check-release: iso check-acpi check-memory-unit check-pmm-unit check-vmm-unit check-heap-unit check-processes-unit check-resources-unit check-scheduler-unit check-address-space-unit check-elf-unit check-monitor-unit check-runtime-unit check-console-unit check-block-unit check-ata-unit
+check-release: iso check-acpi check-memory-unit check-pmm-unit check-vmm-unit check-heap-unit check-processes-unit check-resources-unit check-scheduler-unit check-address-space-unit check-elf-unit check-monitor-unit check-runtime-unit check-console-unit check-block-unit check-ata-unit check-vfs-unit
 	python3 scripts/check-release.py
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.

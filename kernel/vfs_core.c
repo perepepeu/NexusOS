@@ -69,7 +69,7 @@ static enum vfs_error create_node(struct vfs *v,struct vfs_session *s,const char
     while(n>1 && copy[n-1]=='/') copy[--n]=0;
     size_t start=n; while(start && copy[start-1]!='/') --start;
     const char *name=copy+start; size_t namesize=n-start;
-    if(!namesize || !strcmp(name,".") || !strcmp(name,"..")) return VFS_EXISTS;
+    if(!namesize) return VFS_EXISTS;
     if(namesize>VFS_NAME_MAX) return VFS_NAME_LONG;
     char leaf[VFS_NAME_MAX+1]; memcpy(leaf,name,namesize+1);
     struct vfs_location parent=s->cwd;
@@ -78,6 +78,7 @@ static enum vfs_error create_node(struct vfs *v,struct vfs_session *s,const char
         e=resolve(v,s,copy,&parent); if(e) return e;
     }
     if(parent.node->type!=VFS_DIRECTORY) return VFS_NOT_DIR;
+    if(!strcmp(leaf,".") || !strcmp(leaf,"..")) return VFS_EXISTS;
     struct vfs_volume *volume=v->mounts[parent.mount].volume;
     if(volume->read_only) return VFS_READ_ONLY;
     if(!volume->ops->create) return VFS_UNSUPPORTED;
@@ -134,7 +135,8 @@ static struct vfs_io transfer(struct vfs *v,uint64_t pid,int fd,void *buffer,siz
     struct vfs_io r=write ? volume->ops->write(f->location.node,offset,buffer,bytes) :
         volume->ops->read(f->location.node,offset,buffer,bytes);
     if(r.count>bytes) return (struct vfs_io){VFS_IO,0};
-    f->offset=offset+r.count; return r;
+    if(r.count) f->offset=offset+r.count;
+    return r;
 }
 struct vfs_io vfs_core_read(struct vfs *v,uint64_t pid,int fd,void *b,size_t n) { return transfer(v,pid,fd,b,n,false); }
 struct vfs_io vfs_core_write(struct vfs *v,uint64_t pid,int fd,const void *b,size_t n) { return transfer(v,pid,fd,(void *)b,n,true); }
