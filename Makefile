@@ -22,6 +22,7 @@ KERNEL_OBJECTS += build/kernel/ata_core.o build/kernel/storage.o
 KERNEL_OBJECTS += build/kernel/storage_test.o
 KERNEL_OBJECTS += build/kernel/vfs_core.o build/kernel/ramfs.o
 KERNEL_OBJECTS += build/kernel/vfs.o build/kernel/vfs_terminal.o build/kernel/vfs_test.o
+KERNEL_OBJECTS += build/kernel/bootfs_core.o build/kernel/bootfs.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -260,13 +261,23 @@ check-runtime-unit:
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-builtin -Ikernel/include -Dmemset=nexus_memset -Dmemcpy=nexus_memcpy -Dmemmove=nexus_memmove -Dmemcmp=nexus_memcmp -Dstrlen=nexus_strlen -Dstrcmp=nexus_strcmp -Dstrncmp=nexus_strncmp -Dstrcpy=nexus_strcpy -Dstrncpy=nexus_strncpy tests/runtime_test.c kernel/runtime.c -o build/tests/runtime
 	build/tests/runtime
 
-.PHONY: check-vfs-unit
+.PHONY: check-ramfs-unit
 check-ramfs-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/ramfs_boot_test.c kernel/vfs_core.c kernel/ramfs.c -o build/tests/ramfs-boot
 	build/tests/ramfs-boot
 
-.PHONY: check-ramfs-unit
+.PHONY: check-bootfs-unit
+check-bootfs-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/bootfs_test.c kernel/bootfs_core.c kernel/vfs_core.c kernel/ramfs.c -o build/tests/bootfs
+	build/tests/bootfs
+
+.PHONY: check-ramfs
+check-ramfs: iso check-ramfs-unit check-bootfs-unit check-vfs-unit
+	python3 scripts/check-ramfs.py
+
+.PHONY: check-vfs-unit
 check-vfs-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/vfs_test.c kernel/vfs_core.c kernel/ramfs.c -o build/tests/vfs
@@ -309,7 +320,7 @@ check-diagnostics: iso check-monitor-unit
 	python3 scripts/check-kernel.py --diagnostics
 
 .PHONY: check-release
-check-release: iso check-acpi check-memory-unit check-pmm-unit check-vmm-unit check-heap-unit check-processes-unit check-resources-unit check-scheduler-unit check-address-space-unit check-elf-unit check-monitor-unit check-runtime-unit check-console-unit check-block-unit check-ata-unit check-vfs-unit
+check-release: iso check-acpi check-memory-unit check-pmm-unit check-vmm-unit check-heap-unit check-processes-unit check-resources-unit check-scheduler-unit check-address-space-unit check-elf-unit check-monitor-unit check-runtime-unit check-console-unit check-block-unit check-ata-unit check-vfs-unit check-ramfs-unit check-bootfs-unit
 	python3 scripts/check-release.py
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.

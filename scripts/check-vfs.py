@@ -60,7 +60,7 @@ def run(mode,ram,iso,test):
                     previous=len(log.read_bytes()); type_command(text)
                     if expected==b"nexus> ": expected=b"\r\n\rnexus> "
                     wait(lambda:expected in re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]",b"",log.read_bytes()[previous:]),text)
-                command("vfsinfo",b"VFS: volumes=2 processos=1 descritores=0")
+                command("vfsinfo",b"VFS: volumes=3 processos=1 descritores=0")
                 if not test:
                     command("pwd",b"\r\n/\r\n")
                     command("cat /etc/motd",b"NexusOS: VFS e RAMFS prontos.\r\n")
@@ -85,7 +85,7 @@ def run(mode,ram,iso,test):
                     command("mount /mnt",b"Volume RAMFS montado.")
                     command("cat /mnt/kept",b"preservado\r\n")
                     command("umount /mnt",b"Volume desmontado com seguranca.")
-                    command("vfsinfo",b"VFS: volumes=2 processos=1 descritores=0")
+                    command("vfsinfo",b"VFS: volumes=3 processos=1 descritores=0")
                 command("echo vfs-terminal-ok",b"\r\nvfs-terminal-ok\r\n")
                 assert clean().count(READY)==1 and b"KERNEL PANIC" not in clean()
                 monitor.type_command("shutdown"); process.wait(timeout=15); assert process.returncode==0

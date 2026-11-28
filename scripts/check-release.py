@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 suites = [
+    ("ramfs", ["scripts/check-ramfs.py"]),
     ("vfs", ["scripts/check-vfs.py"]),
     ("storage", ["scripts/check-storage.py"]),
     ("diagnostics", ["scripts/check-kernel.py", "--diagnostics"]),

@@ -12,8 +12,10 @@ Implementacao posterior a v0.3, sem nova versao publicada.
 - [x] Posicao de leitura/escrita, seek, EOF, append e truncamento.
 - [x] Serializacao das operacoes e integracao ao encerramento dos processos.
 
-O primeiro backend e RAMFS. A raiz `/` e um volume, e `/tmp` inicia com outro
-volume montado. `/etc/motd` contem uma mensagem de demonstracao. Os dados ficam
+O primeiro backend e RAMFS. A raiz `/` e um volume, `/tmp` inicia com outro
+volume montado e `/boot/modules` expoe os modulos Limine em um terceiro volume
+somente de leitura. Veja [RAMFS e inicializacao](ramfs.md).
+`/etc/motd` contem uma mensagem de demonstracao. Os dados ficam
 na RAM e desaparecem ao reiniciar. Montar um volume nao formata discos nem
 interpreta automaticamente particoes: um futuro backend FAT/ext2/etc. podera
 usar `vfs_volume.device` para acessar a camada de blocos ja implementada.
@@ -154,5 +156,7 @@ normais com IF=0 retornam erro de contexto. Uso em IRQ/NMI e SMP nao e suportado
 Limites: oito montagens (incluindo raiz), 32 processos com sessao, 29 FDs por
 processo, nomes de 31 bytes, caminhos de ate 255 bytes e I/O de ate
 64 KiB por chamada. RAMFS tem 32 nodes por volume (incluindo raiz), arquivos
-de ate 4096 bytes e armazenamento estatico. Esgotamento retorna erro, sem
+gravaveis de ate 4096 bytes e armazenamento estatico. Arquivos imutaveis de
+boot referenciam os bytes reservados pelo Limine e podem exceder 4096 bytes.
+Esgotamento retorna erro, sem
 sobrescrever nodes ou tabelas. Nao ha sistema de arquivos persistente nesta etapa.

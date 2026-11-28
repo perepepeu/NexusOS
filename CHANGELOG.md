@@ -2,6 +2,9 @@
 
 ## Em desenvolvimento — auditoria de fundamentos
 
+- RAMFS importa arquivos imutaveis da memoria de boot sem o limite de 4 KiB dos arquivos gravaveis; modulos Limine montados em `/boot/modules`, com validacao de nomes, duplicatas, limites e fallback quando ausentes.
+- Testes de inicializacao RAMFS em BIOS/UEFI com comparacao integral dos modulos, tamanho/hash, protecao de escrita e verificacao de descritores.
+
 - VFS generico e RAMFS: caminhos absolutos/relativos, ./.., montagem/desmontagem segura, descritores e cwd por PID, offsets e append serializados entre threads/processos.
 - Testes VFS com sanitizers e seis cenarios BIOS/UEFI: concorrencia, exit/kill, limites, comandos do terminal e verificacao de referencias/paginas apos desmontar.
 

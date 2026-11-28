@@ -14,6 +14,10 @@ processo. Testes: `make check-vfs`. No NexusOS, experimente `ls /`,
 `cat /etc/motd`, `mkdir /tmp/docs`, `write /tmp/docs/nota ola` e
 `cat /tmp/docs/nota`. Os arquivos do RAMFS existem somente na memoria.
 
+Os modulos de inicializacao do Limine aparecem em `/boot/modules`, somente
+para leitura. Use `ls /boot/modules` no NexusOS e `make check-ramfs` no WSL.
+Veja [RAMFS e inicializacao](docs/ramfs.md).
+
 ## Compilador C e Assembly
 
 Ambiente: Ubuntu 24.04 no WSL 2, com GCC 13, NASM 2.16 e GNU Binutils.
