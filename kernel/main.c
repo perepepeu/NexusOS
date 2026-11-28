@@ -145,6 +145,11 @@ void kmain(void) {
     if (console_init(framebuffer.response)) {
         console_write("NexusOS\n\n");
         log_info("video", "Tela: framebuffer pronto.");
+        struct console_info video; KASSERT(console_info(&video));
+        log_info("video", "Framebuffer: %llux%llu pitch=%llu bpp=%u RGB=%u:%u/%u:%u/%u:%u",
+            (unsigned long long)video.width,(unsigned long long)video.height,(unsigned long long)video.pitch,
+            (unsigned int)video.bpp,(unsigned int)video.rm,(unsigned int)video.rs,(unsigned int)video.gm,
+            (unsigned int)video.gs,(unsigned int)video.bm,(unsigned int)video.bs);
     } else {
         log_warn("video", "Framebuffer RGB de 32 bits indisponivel; usando serial.");
     }

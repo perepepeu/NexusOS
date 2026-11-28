@@ -13,6 +13,9 @@ int main(void) {
     struct limine_framebuffer *items[]={&fb};
     struct limine_framebuffer_response response={.framebuffer_count=1,.framebuffers=items};
     assert(console_init(&response));
+    struct console_info info;
+    assert(console_info(&info) && info.width==width && info.height==height && info.pitch==pitch && info.bpp==32 && info.rs==16);
+    assert(!console_info(0));
     for(unsigned int i=0;i<200;++i) { console_write("NexusOS: rolagem e limites\n"); console_input("nexus> ","abcdefghijklmnopqrstuv",UINT32_MAX); }
     console_write_n("A\0B\r\b\n",6); console_clear();
     for(size_t i=0;i<32;++i) assert(memory[i]==0xa5 && memory[32+bytes+i]==0xa5);
@@ -23,7 +26,8 @@ int main(void) {
     console_write("sem framebuffer\n"); console_input("nexus> ","teste",0); console_clear();
     fb.blue_mask_shift=16; fb.pitch=width*4-1; assert(!console_init(&response));
     fb.pitch=pitch; fb.height=UINT64_MAX; assert(!console_init(&response));
-    fb.height=height; fb.address=(void *)(uintptr_t)(UINTPTR_MAX-16); assert(!console_init(&response));
+    fb.height=height; fb.address=memory+33; assert(!console_init(&response) && !console_info(&info));
+    fb.address=(void *)(uintptr_t)(UINTPTR_MAX-16); assert(!console_init(&response));
     assert(!console_init(0)); free(memory);
     puts("OK: framebuffer, RGB/BGR, pitch com padding, rolagem, cursores, guardas e metadados invalidos.");
 }

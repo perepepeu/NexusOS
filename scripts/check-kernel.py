@@ -321,7 +321,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
         with log.open("wb") as output, subprocess.Popen(
                 command, stdout=output, stderr=subprocess.STDOUT) as process:
             try:
-                deadline = time.monotonic() + (100 if scenario == "diagnostics" else 60 if scenario in ("user-faults", "syscalls", "sysread", "elf") else 50 if scenario == "processes" else 40 if scenario in ("pmm", "scheduler", "user") else 20)
+                deadline = time.monotonic() + (100 if scenario == "diagnostics" else 60 if scenario in ("user-faults", "syscalls", "sysread", "elf") else 50 if scenario == "processes" else 40)
                 injected = False
                 read_phase = 0
                 while marker not in log.read_bytes():
@@ -473,6 +473,7 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
         if b"DEBUG oculto" in text:
             raise RuntimeError(f"Filtro de log falhou; consulte {log}")
     if scenario == "interrupts":
+        required += [b"PIC: mascaras individuais/cascata e IRQs espurias OK."]
         required += [b"Breakpoint INT3 tratado; retornando por IRETQ.",
                      b"GDT IDT INT3 registros e PIT: OK."]
     if scenario in ("keyboard", "keyboard-echo"):

@@ -265,6 +265,14 @@ void interrupts_selftest(void) {
     KASSERT(((gdt[5] >> 40) & 255) == 0xfa && ((gdt[6] >> 40) & 255) == 0xf2);
     KASSERT((gdt[5] & (1ull << 53)) && !(gdt[5] & (1ull << 54)));
     KASSERT(tss.iomap == sizeof tss && tss.rsp[0] && !(tss.rsp[0] & 15));
+    uint64_t saved_flags = irq_save(); uint8_t master_mask = inb(0x21), slave_mask = inb(0xa1);
+    interrupts_disable_irq(1); KASSERT(inb(0x21) & 2);
+    interrupts_enable_irq(1); KASSERT(!(inb(0x21) & 2));
+    interrupts_enable_irq(10); KASSERT(!(inb(0xa1) & 4) && !(inb(0x21) & 4));
+    interrupts_disable_irq(10); KASSERT(inb(0xa1) & 4);
+    outb(0x21,master_mask); outb(0xa1,slave_mask); irq_restore(saved_flags);
+    __asm__ volatile ("int $0x27; int $0x2f; int $0xff" : : : "memory");
+    log_info("test","PIC: mascaras individuais/cascata e IRQs espurias OK.");
     uint64_t before = breakpoints;
     KASSERT(interrupt_register_test());
     KASSERT(breakpoints == before + 1);

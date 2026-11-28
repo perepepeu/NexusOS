@@ -77,7 +77,7 @@ static bool console_init_unlocked(struct limine_framebuffer_response *response) 
     }
     for (uint64_t i = 0; i < response->framebuffer_count; ++i) {
         struct limine_framebuffer *fb = response->framebuffers[i];
-        if (!fb || !fb->address || fb->memory_model != LIMINE_FRAMEBUFFER_RGB
+        if (!fb || !fb->address || ((uintptr_t)fb->address & 3) || fb->memory_model != LIMINE_FRAMEBUFFER_RGB
                 || fb->bpp != 32 || fb->pitch % 4 != 0
                 || fb->width > UINT64_MAX / 4 || fb->pitch < fb->width * 4
                 || fb->height == 0 || fb->pitch > UINT64_MAX / fb->height
@@ -230,6 +230,13 @@ static void console_write_n_unlocked(const char *text, size_t bytes) {
 }
 bool console_init(struct limine_framebuffer_response *response) {
     uint64_t flags = irq_save(); bool ok = console_init_unlocked(response); irq_restore(flags); return ok;
+}
+bool console_info(struct console_info *out) {
+    uint64_t flags = irq_save(); bool ok = screen && out;
+    if (ok) *out = (struct console_info){screen->width,screen->height,screen->pitch,screen->bpp,
+        screen->red_mask_size,screen->red_mask_shift,screen->green_mask_size,screen->green_mask_shift,
+        screen->blue_mask_size,screen->blue_mask_shift};
+    irq_restore(flags); return ok;
 }
 void console_clear(void) {
     uint64_t flags = irq_save(); console_clear_unlocked(); irq_restore(flags);

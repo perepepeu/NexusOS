@@ -35,7 +35,7 @@ No Ubuntu/WSL, instale as dependencias caso esteja preparando outra maquina:
 
 ```sh
 sudo apt-get update
-sudo apt-get install build-essential nasm xorriso curl python3 qemu-system-x86 qemu-system-gui ovmf
+sudo apt-get install build-essential nasm xorriso curl python3 gdb qemu-system-x86 qemu-system-gui ovmf
 make setup-limine
 make check-kernel
 ```
@@ -941,7 +941,10 @@ Os testes repetem fault/recuperacao/kill, comparam PMM/VMM/heap e os numeros de
 PCB/TCB e exercitam os comandos pelo QMP em BIOS/UEFI com tres tamanhos de RAM.
 Veja [passo a passo e interpretacao dos resultados](docs/diagnostics.md).
 
+Veja tambem a [auditoria dos fundamentos e configuracao do GDB](docs/fundamentals.md).
+
 Referencias oficiais:
+
 - https://cdrdv2-public.intel.com/843827/253665-sdm-vol-1-dec-24.pdf
 - https://github.com/Limine-Bootloader/Limine/releases/tag/v12.11.1
 - https://github.com/Limine-Bootloader/Limine/blob/v12.11.1/USAGE.md

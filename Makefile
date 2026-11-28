@@ -261,12 +261,18 @@ check-console-unit:
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Itests/host -Ikernel/include tests/console_test.c kernel/console.c -o build/tests/console
 	build/tests/console
 
+.PHONY: check-basics check-soak
+check-basics: iso check-runtime-unit check-console-unit
+	python3 scripts/check-basics.py
+check-soak: iso
+	python3 scripts/check-basics.py --soak-seconds 3600
+
 .PHONY: check-diagnostics
 check-diagnostics: iso check-monitor-unit
 	python3 scripts/check-kernel.py --diagnostics
 
 .PHONY: check-release
-check-release: iso check-acpi check-memory-unit check-pmm-unit check-vmm-unit check-heap-unit check-processes-unit check-resources-unit check-scheduler-unit check-address-space-unit check-elf-unit check-monitor-unit
+check-release: iso check-acpi check-memory-unit check-pmm-unit check-vmm-unit check-heap-unit check-processes-unit check-resources-unit check-scheduler-unit check-address-space-unit check-elf-unit check-monitor-unit check-runtime-unit check-console-unit
 	python3 scripts/check-release.py
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.

@@ -5,6 +5,8 @@
 - Runtime freestanding completo para memoria/strings e panic com todos os GPRs/CS/SS.
 - Framebuffer com limites explicitos, formatos RGB sem mascaras sobrepostas e testes de padding/rolagem.
 - GDB real em BIOS/UEFI, stack ABI e probes de inicializacao DATA/BSS.
+- Testes de resolucoes, respostas Limine ausentes, mascaras/IRQs espurias, timer/idle e teclado/historico.
+- Reboots repetidos na mesma VM e harness de soak com duracao real, sem simular uma hora.
 
 ## 0.3 - 2026-11-28
 
