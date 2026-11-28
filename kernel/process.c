@@ -10,6 +10,7 @@
 #include <address_space.h>
 #include <user_mode.h>
 #include <syscall.h>
+#include <elf64.h>
 
 enum { STACK_PAGES = 4, STACK_STRIDE = 6 * 4096 };
 static struct process_manager manager;
@@ -291,6 +292,19 @@ static void user_start(void *argument) {
     KASSERT(p->space && p->space->ready && p->info.user_mode);
     user_mode_enter(p->user_entry, p->user_stack, p->user_argument);
 }
+/* Chamado com preempcao desabilitada e IF=1, apos preparar o espaco inativo. */
+static uint64_t publish_user(const char *name, unsigned int slot, struct address_space *space,
+        uint64_t entry, uint64_t stack, uint64_t argument) {
+    uint64_t pid = process_create(name, user_start, (void *)(uintptr_t)slot);
+    uint64_t flags = irq_save();
+    if (pid) {
+        KASSERT(process_core_find(&manager, pid) == (int)slot);
+        struct process_control_block *p = &manager.processes[slot];
+        p->space = space; p->info.user_mode = true;
+        p->user_entry = entry; p->user_stack = stack; p->user_argument = argument;
+    } else if (space->ready) KASSERT(address_space_destroy(space));
+    irq_restore(flags); return pid;
+}
 uint64_t process_create_user(const char *name, const void *image, size_t bytes, size_t entry_offset, uint64_t argument) {
     if (!manager.ready || !name || !*name || !image || !bytes || bytes > 65536 || entry_offset >= bytes) return 0;
     process_preempt_disable(); uint64_t flags = irq_save();
@@ -304,15 +318,29 @@ uint64_t process_create_user(const char *name, const void *image, size_t bytes, 
     for (unsigned int i = 0; ok && i < 4; ++i) ok = address_space_alloc(space, USER_STACK_BASE + i * 4096, VMM_WRITE) != 0;
     if (ok) ok = address_space_copy(space, USER_CODE_BASE, (void *)image, bytes, true);
     irq_restore(flags);
-    uint64_t pid = ok ? process_create(name, user_start, (void *)(uintptr_t)slot) : 0;
-    flags = irq_save();
-    if (pid) {
-        KASSERT(process_core_find(&manager, pid) == slot);
-        struct process_control_block *p = &manager.processes[slot];
-        p->space = space; p->info.user_mode = true;
-        p->user_entry = USER_CODE_BASE + entry_offset; p->user_stack = USER_STACK_TOP - 8; p->user_argument = argument;
-    } else if (space->ready) KASSERT(address_space_destroy(space));
-    irq_restore(flags); process_preempt_enable(); return pid;
+    uint64_t pid = ok ? publish_user(name, (unsigned int)slot, space, USER_CODE_BASE + entry_offset, USER_STACK_TOP - 8, argument) : 0;
+    if (!ok && space->ready) KASSERT(address_space_destroy(space));
+    process_preempt_enable(); return pid;
+}
+uint64_t process_create_elf(const char *name, const void *image, size_t bytes, enum elf64_result *error) {
+    if (error) *error = ELF64_ARGUMENT;
+    if (!manager.ready || !name || !*name || !image) return 0;
+    process_preempt_disable(); uint64_t flags = irq_save();
+    int slot = -1;
+    for (unsigned int i = 1; i < PROCESS_MAX; ++i) if (!manager.processes[i].used) { slot = (int)i; break; }
+    uint64_t pid = 0, root, mask, entry = 0, stack = 0; struct vmm_ops ops;
+    enum elf64_result result = ELF64_LIMIT;
+    if (slot >= 0) {
+        result = vmm_kernel_context(&ops, &root, &mask) ? elf64_build(&user_spaces[slot], &ops, 0,
+            root, mask, image, bytes, name, &entry, &stack) : ELF64_STATE;
+    }
+    irq_restore(flags);
+    if (result == ELF64_OK) {
+        pid = publish_user(name, (unsigned int)slot, &user_spaces[slot], entry, stack, 0);
+        if (!pid) result = ELF64_MEMORY;
+    }
+    if (error) *error = result;
+    process_preempt_enable(); return pid;
 }
 bool process_user_syscall(struct interrupt_frame *frame) {
     int slot = process_core_find(&manager, process_current_pid());

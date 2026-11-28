@@ -29,10 +29,39 @@ envp[0]=NULL e auxv com AT_PAGESZ=4096, AT_ENTRY=entry e AT_NULL.
 O programa deve usar um _start em Assembly que chama C respeitando o ABI,
 e terminar por sys_exit. Ainda nao ha argumentos adicionais, ambiente ou libc.
 
-Teste do nucleo do loader:
+Os programas sao arquivos ELF completos na ISO: /boot/programs/alpha.elf e
+/boot/programs/beta.elf. A configuracao module_path/module_string do Limine
+fornece um catalogo somente de leitura ao kernel. As paginas dos modulos
+permanecem reservadas no mapa fisico; codigo/dados de cada processo sao copias
+privadas. Nao e necessario initramfs nesta etapa.
+
+Os dois executaveis possuem fontes C distintas e tres PT_LOAD: RX para texto,
+RO/NX para constantes e RW/NX para dados/BSS. Ambos usam os mesmos enderecos
+virtuais para globais, mas valores e frames diferentes. O entry point e
+0x401010; ele nao coincide com a base do segmento nem com a base das imagens
+planas antigas. O _start confere a pilha e chama C pelo ABI SysV.
+
+No terminal:
+
+```text
+programs
+elfdemo
+run alpha
+run beta
+ps
+wait PID
+```
+
+programs lista o catalogo. elfdemo cria alpha/beta antes de permitir que
+executem, aguarda ambos e mostra seus status. run NOME cria um processo em
+segundo plano; use o PID mostrado em wait para coletar o resultado. Nomes
+desconhecidos, argumentos extras e arquivos invalidos sao recusados.
+
+Testes:
 
 ```sh
 make check-elf-unit
+make check-elf
 ```
 
 O teste ASan/UBSan cobre cabecalhos/segmentos hostis, arquivos truncados e

@@ -71,5 +71,6 @@ NUL na serial, leituras curtas, ausencia de consumo em falhas, kill durante
 read, retorno ao terminal e contadores de memoria restaurados. O alvo inclui
 os testes ASan/UBSan da validacao/copia de ponteiros.
 
-Os arquivos ELF produzidos pelo linker sao intermediarios da compilacao;
-o kernel recebe imagens planas embutidas, sem loader ELF de usuario.
+Os programas desta suite de syscalls ainda usam imagens planas embutidas.
+O carregador de [programas ELF64](elf64.md) tambem executa arquivos completos
+fornecidos como modulos Limine, usando a mesma ABI de syscalls.

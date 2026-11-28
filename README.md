@@ -289,6 +289,9 @@ o texto digitado, sem interpretacao de aspas, pipes ou redirecionamentos.
 | `pmm` | Mostra paginas livres, alocadas e reservadas para o bitmap |
 | `vmm` | Mostra CR3, janela virtual e tabelas de paginas proprias |
 | `sysdemo` | Executa um programa C em Ring 3 que le uma linha e mostra a resposta |
+| `programs` | Lista os programas ELF64 fornecidos pelo Limine |
+| `run NOME` | Carrega um ELF64 em segundo plano e mostra seu PID |
+| `elfdemo` | Executa alpha e beta em conjunto e aguarda seus resultados |
 
 O editor aceita 127 caracteres, insercao na posicao do cursor, Left/Right,
 Home/End, Delete, Backspace e Tab (quatro espacos). Up/Down navegam pelo
@@ -852,8 +855,9 @@ privada; o terminal permanece funcional e os contadores de memoria retornam
 ao baseline. O nucleo de enderecamento tambem e testado com ASan/UBSan,
 incluindo OOM, limites e tentativa de destruir a CR3 ativa.
 
-Ainda nao ha loader ELF, arquivos executaveis externos, fork/exec, sinais,
-syscalls para criar threads de usuario, TLS, FPU/SIMD ou SMP. Cada processo
+O loader ELF64 descrito abaixo carrega executaveis estaticos dos modulos Limine.
+Ainda nao ha sistema de arquivos, fork/exec, sinais, syscalls para criar threads
+de usuario, TLS, FPU/SIMD ou SMP. Cada processo
 Ring 3 inicia uma thread; as multiplas threads existentes continuam disponiveis
 para processos do kernel. As protecoes descritas cobrem acessos arquiteturais
 pela CPU, sem promessa de protecao contra canais laterais.
@@ -887,6 +891,32 @@ pelo QMP apos confirmar o bloqueio; uma tarefa testemunha observa sleep/INPUT.
 Sao testados limites, buffers invalidos, paginas somente de leitura, copias que
 cruzam paginas, leituras curtas, encerramento durante read e devolucao integral
 dos recursos. A demonstracao sysdemo e testada em primeiro plano pelo terminal.
+
+## Execucao de programas ELF64
+
+A ISO inclui alpha.elf e beta.elf como modulos Limine, com codigo C distinto.
+O kernel valida os arquivos completos e cria paginas privadas para cada
+PT_LOAD: texto RX, constantes RO/NX e dados/BSS RW/NX. BSS e padding sao zerados.
+Cada processo recebe CR3 e stack proprios; o entry point do ELF e executado
+em Ring 3 com argc/argv/auxv na stack, usando a ABI de syscalls existente.
+
+```sh
+make check-elf
+# No terminal: programs, elfdemo
+# Ou: run alpha, run beta, ps, wait PID
+```
+
+elfdemo inicia ambos antes de liberar a execucao e coleta os status, esperados
+como zero. Os programas usam os mesmos enderecos virtuais de dados/BSS com
+conteudos distintos e verificam que seus dados continuam corretos apos sleep.
+Nomes inexistentes e argumentos invalidos retornam ao prompt.
+
+Suporte inicial: ELF64 little-endian System V/AMD64, ET_EXEC estatico, ate
+1 MiB de arquivo e 256 KiB de paginas por processo incluindo a stack. Nao ha
+PIE, linker dinamico, TLS ou bibliotecas compartilhadas. Paginas compartilhadas
+entre segmentos, W+X, invasao da stack/guardas e entry invalido sao recusados.
+Veja [formato, limites e testes](docs/elf64.md). Os programas ELF sao arquivos
+na ISO, separados do kernel; imagens planas anteriores continuam disponiveis.
 
 Referencias oficiais:
 - https://cdrdv2-public.intel.com/843827/253665-sdm-vol-1-dec-24.pdf

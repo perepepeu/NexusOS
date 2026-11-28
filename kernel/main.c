@@ -14,6 +14,7 @@
 #include <heap.h>
 #include <process.h>
 #include <user_mode.h>
+#include <programs.h>
 
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t requests_start[] = LIMINE_REQUESTS_START_MARKER;
@@ -49,6 +50,8 @@ __attribute__((used, section(".limine_requests")))
 static volatile struct limine_rsdp_request rsdp = {.id = LIMINE_RSDP_REQUEST_ID};
 __attribute__((used, section(".limine_requests")))
 static volatile struct limine_memmap_request memory_map = {.id = LIMINE_MEMMAP_REQUEST_ID};
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_module_request modules = {.id = LIMINE_MODULE_REQUEST_ID};
 
 __attribute__((used, section(".limine_requests_end")))
 static volatile uint64_t requests_end[] = LIMINE_REQUESTS_END_MARKER;
@@ -221,6 +224,7 @@ void kmain(void) {
     log_info("process", "Base: alocadas=%llu mapeadas=%llu tabelas=%llu",
         (unsigned long long)process_pages.allocated_pages, (unsigned long long)process_maps.mapped_pages,
         (unsigned long long)process_maps.table_pages);
+    programs_init(modules.response);
     if (boot_option("selftest=processes")) process_selftest(false);
     if (boot_option("selftest=scheduler")) scheduler_selftest();
     if (boot_option("selftest=user")) user_mode_selftest();

@@ -15,6 +15,7 @@ KERNEL_OBJECTS += build/kernel/address_space_core.o build/kernel/address_space.o
 KERNEL_OBJECTS += build/kernel/user_mode.o
 KERNEL_OBJECTS += build/kernel/syscall.o
 KERNEL_OBJECTS += build/kernel/elf64.o
+KERNEL_OBJECTS += build/kernel/programs.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -61,6 +62,18 @@ build/user/%.o: user/%.c user/include/syscall.h kernel/include/syscall_abi.h Mak
 	mkdir -p $(@D)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 
+build/user/elf_start.o: user/elf_start.asm build/include/syscall_abi.inc Makefile
+	mkdir -p $(@D)
+	$(AS) $(ASFLAGS) -Ibuild/include/ $< -o $@
+
+build/user/elf_alpha.o build/user/elf_beta.o: user/include/elf_runtime.h
+
+build/user/alpha.elf: build/user/elf_alpha.o build/user/elf_start.o user/elf_linker.ld
+	$(LD) -nostdlib -m elf_x86_64 -z max-page-size=0x1000 -T user/elf_linker.ld build/user/elf_start.o build/user/elf_alpha.o -o $@
+
+build/user/beta.elf: build/user/elf_beta.o build/user/elf_start.o user/elf_linker.ld
+	$(LD) -nostdlib -m elf_x86_64 -z max-page-size=0x1000 -T user/elf_linker.ld build/user/elf_start.o build/user/elf_beta.o -o $@
+
 build/user/syscall_registers.o: user/syscall_registers.asm build/include/syscall_abi.inc Makefile
 	mkdir -p $(@D)
 	$(AS) $(ASFLAGS) -Ibuild/include/ $< -o $@
@@ -84,7 +97,7 @@ build/kernel/user_mode.o: kernel/user_mode.asm toolchain.mk Makefile build/inclu
 build/kernel.elf: $(KERNEL_OBJECTS) kernel/linker.ld | check-kernel-arch
 	$(LD) $(LDFLAGS) -z max-page-size=0x1000 -T kernel/linker.ld $(KERNEL_OBJECTS) -o $@
 
-iso: kernel setup-limine
+iso: kernel setup-limine build/user/alpha.elf build/user/beta.elf
 	bash scripts/build-iso.sh
 
 run: iso
@@ -208,6 +221,10 @@ check-elf-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/elf64_test.c kernel/elf64.c kernel/address_space_core.c -o build/tests/elf64
 	build/tests/elf64
+
+.PHONY: check-elf
+check-elf: iso check-elf-unit
+	python3 scripts/check-kernel.py --elf
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader

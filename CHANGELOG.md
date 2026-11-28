@@ -2,6 +2,10 @@
 
 ## Em desenvolvimento
 
+- Criacao de processos ELF com CR3 proprio, entry do arquivo e stack inicial em CPL3.
+- Modulos Limine alpha/beta na ISO, tres PT_LOAD por programa e dados/BSS independentes.
+- Comandos programs, run NOME e elfdemo para executar dois programas em conjunto.
+
 - Nucleo ELF64 estatico com validacao de PT_LOAD, intervalos, alinhamentos, entry e W^X.
 - Paginas privadas RX/RO/RW-NX, BSS zerada, stack/argv/auxv e rollback integral em OOM.
 - Testes ASan/UBSan de arquivos hostis e 10000 mutacoes deterministicas.

@@ -15,6 +15,7 @@
 #include <process.h>
 #include <io.h>
 #include <user_mode.h>
+#include <programs.h>
 
 enum { LINE_SIZE = 128, HISTORY_SIZE = 8 };
 static const char prompt[] = "nexus> ";
@@ -204,6 +205,14 @@ static void save_history(const char *line) {
     history_head = (history_head + 1) % HISTORY_SIZE;
     if (history_count < HISTORY_SIZE) ++history_count;
 }
+static void program_summary(void) {
+    put("Programas ELF64 (modulos Limine)\n");
+    for (size_t i = 0; i < programs_count(); ++i) {
+        const struct boot_program *p = programs_get(i);
+        put(p->name); put(" bytes="); number(p->bytes, true); put(" entry="); hex(p->entry);
+        put(" segmentos="); number(p->segments, true); put(" estado="); put(elf64_error(p->validation)); put("\n");
+    }
+}
 
 static void command(char *line, const char *bootloader, const char *boot_version) {
     char *name = line;
@@ -215,6 +224,20 @@ static void command(char *line, const char *bootloader, const char *boot_version
     if (*args) *args++ = 0;
     while (*args == ' ' || *args == '\t') ++args;
     if (equal(name, "echo")) { put(args); put("\n"); return; }
+    if (equal(name, "run")) {
+        char *end = args;
+        while (*end && *end != ' ' && *end != '\t') ++end;
+        char *tail = end; while (*tail == ' ' || *tail == '\t') ++tail;
+        if (end == args || *tail) { put("Uso: run NOME (um programa).\n"); return; }
+        *end = 0;
+        const struct boot_program *program = programs_find(args);
+        if (!program) { put("Programa nao encontrado. Digite programs.\n"); return; }
+        enum elf64_result error;
+        uint64_t pid = process_create_elf(program->name, program->image, program->bytes, &error);
+        if (pid) { put("Processo ELF criado: "); number(pid, true); put(" ("); put(program->name); put(")\n"); }
+        else { put("Falha ao carregar ELF: "); put(elf64_error(error)); put("\n"); }
+        return;
+    }
     if (equal(name, "kill") || equal(name, "wait")) {
         uint64_t pid;
         if (!pid_argument(args, &pid)) { put("Uso: "); put(name); put(" PID (inteiro positivo).\n"); return; }
@@ -234,7 +257,8 @@ static void command(char *line, const char *bootloader, const char *boot_version
         || equal(name, "reboot") || equal(name, "shutdown")
         || equal(name, "memory") || equal(name, "meminfo") || equal(name, "memtest")
         || equal(name, "memmap") || equal(name, "pmm") || equal(name, "vmm") || equal(name, "heap")
-        || equal(name, "ps") || equal(name, "threads") || equal(name, "spawn") || equal(name, "spawnuser") || equal(name, "sched") || equal(name, "sysdemo");
+        || equal(name, "ps") || equal(name, "threads") || equal(name, "spawn") || equal(name, "spawnuser") || equal(name, "sched") || equal(name, "sysdemo")
+        || equal(name, "programs") || equal(name, "elfdemo");
     if (!known) { put("Comando desconhecido: "); put(name); put(". Digite help.\n"); return; }
     if (*args) { put("Uso: "); put(name); put(" (sem argumentos).\n"); return; }
     if (equal(name, "help")) {
@@ -243,9 +267,16 @@ static void command(char *line, const char *bootloader, const char *boot_version
         put("Memoria: memory meminfo memmap pmm vmm heap memtest\n");
         put("Processos: ps threads spawn spawnuser kill PID wait PID sched\n");
         put("Usuario: sysdemo (programa interativo de syscalls em Ring 3)\n");
+        put("ELF64: programs run NOME elfdemo\n");
         put("Edicao: setas, Home/End, Delete, Backspace, historico Up/Down.\n");
         put("Ctrl+C cancela, Ctrl+U apaga a linha, Ctrl+L limpa a tela.\n");
     } else if (equal(name, "ps")) process_summary();
+    else if (equal(name, "programs")) program_summary();
+    else if (equal(name, "elfdemo")) {
+        int a, b;
+        if (programs_demo(&a, &b)) { put("ELF demo: alpha="); signed_number(a); put(" beta="); signed_number(b); put("\n"); }
+        else put("Falha ao iniciar/aguardar os programas ELF.\n");
+    }
     else if (equal(name, "sched")) scheduler_summary();
     else if (equal(name, "threads")) thread_summary();
     else if (equal(name, "spawnuser")) {
