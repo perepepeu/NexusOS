@@ -11,6 +11,7 @@
 #include <user_mode.h>
 #include <syscall.h>
 #include <elf64.h>
+#include <programs.h>
 
 enum { STACK_PAGES = 4, STACK_STRIDE = 6 * 4096 };
 static struct process_manager manager;
@@ -485,6 +486,105 @@ void user_mode_fault_selftest(void) {
     KASSERT(before.free_pages == after.free_pages && before.allocated_pages == after.allocated_pages &&
         vb.mapped_pages == va.mapped_pages && vb.table_pages == va.table_pages);
     log_info("test", "User faults: 26 tentativas bloqueadas, vitima preservada, kernel ativo e memoria restaurada OK.");
+}
+
+static void elf_memory_same(const struct pmm_stats *before, const struct vmm_stats *vb) {
+    struct pmm_stats after; struct vmm_stats va;
+    pmm_get_stats(&after); vmm_get_stats(&va);
+    KASSERT(before->free_pages == after.free_pages && before->allocated_pages == after.allocated_pages &&
+        vb->mapped_pages == va.mapped_pages && vb->table_pages == va.table_pages);
+}
+static void elf_reject(const void *image, size_t bytes, enum elf64_result expected) {
+    struct pmm_stats before; struct vmm_stats vb;
+    pmm_get_stats(&before); vmm_get_stats(&vb); uint64_t next = manager.next_pid;
+    enum elf64_result error;
+    KASSERT(!process_create_elf("invalid-elf", image, bytes, &error) && error == expected && manager.next_pid == next);
+    elf_memory_same(&before, &vb);
+}
+void elf_process_selftest(void) {
+    struct pmm_stats before; struct vmm_stats vb;
+    pmm_get_stats(&before); vmm_get_stats(&vb);
+    const struct boot_program *a = programs_find("alpha"), *b = programs_find("beta");
+    KASSERT(a && b && a->validation == ELF64_OK && b->validation == ELF64_OK && a->image != b->image);
+    unsigned char *copy = kmalloc(a->bytes); KASSERT(copy);
+    for (size_t i = 0; i < a->bytes; ++i) copy[i] = ((const unsigned char *)a->image)[i];
+    struct elf64_header *h = (void *)copy, saved = *h;
+    struct elf64_phdr *ph = (void *)(copy + h->phoff), saved_ph = *ph;
+    h->ident[0] = 0; elf_reject(copy, a->bytes, ELF64_HEADER); *h = saved;
+    h->phoff = UINT64_MAX; elf_reject(copy, a->bytes, ELF64_TRUNCATED); *h = saved;
+    ph->flags = 7; elf_reject(copy, a->bytes, ELF64_PERMISSIONS); *ph = saved_ph;
+    ph->vaddr = 0xffffffff80000000ull; elf_reject(copy, a->bytes, ELF64_SEGMENT); *ph = saved_ph;
+    h->entry = 0x600000; elf_reject(copy, a->bytes, ELF64_ENTRY); *h = saved;
+    ph->memsz = 61 * 4096; elf_reject(copy, a->bytes, ELF64_LIMIT); *ph = saved_ph;
+    elf_reject(copy, 63, ELF64_TRUNCATED);
+    kfree(copy); elf_memory_same(&before, &vb);
+    enum elf64_result error; uint64_t next = manager.next_pid;
+    fail_after = 0;
+    KASSERT(!process_create_elf(a->name, a->image, a->bytes, &error) && error == ELF64_MEMORY);
+    fail_after = -1; KASSERT(manager.next_pid == next); elf_memory_same(&before, &vb);
+    log_info("test", "ELF: arquivos invalidos sem PID, limites e rollback de pilha kernel OK.");
+    process_preempt_disable();
+    uint64_t pa = process_create_elf(a->name, a->image, a->bytes, &error);
+    uint64_t pb = process_create_elf(b->name, b->image, b->bytes, &error);
+    KASSERT(pa && pb && pa != pb);
+    struct process_control_block *ca = &manager.processes[process_core_find(&manager, pa)];
+    struct process_control_block *cb = &manager.processes[process_core_find(&manager, pb)];
+    KASSERT(ca->space->root != cb->space->root && ca->space->root != address_space_kernel_root());
+    KASSERT(ca->user_entry == a->entry && cb->user_entry == b->entry && a->entry != USER_CODE_BASE && !(ca->user_stack & 15));
+    struct vmm_mapping ma, mb;
+    const uint64_t virtuals[] = {0x401000, 0x403000, 0x600000, USER_STACK_BASE};
+    const unsigned int permissions[] = {VMM_USER | VMM_EXEC, VMM_USER, VMM_USER | VMM_WRITE, VMM_USER | VMM_WRITE};
+    for (size_t i = 0; i < sizeof virtuals / sizeof *virtuals; ++i) {
+        KASSERT(address_core_translate(ca->space, virtuals[i], &ma) && address_core_translate(cb->space, virtuals[i], &mb));
+        KASSERT(ma.flags == permissions[i] && mb.flags == permissions[i] && ma.physical != mb.physical);
+    }
+    KASSERT(!address_core_translate(ca->space, USER_CODE_BASE, &ma));
+    KASSERT(address_core_translate(ca->space, (uintptr_t)a->image, &ma) && !(ma.flags & VMM_USER));
+    uint64_t da, db;
+    KASSERT(address_space_copy(ca->space, 0x600000, &da, sizeof da, false) && da == 0xa1a2a3a4a5a6a7a8ull);
+    KASSERT(address_space_copy(cb->space, 0x600000, &db, sizeof db, false) && db == 0xb1b2b3b4b5b6b7b8ull);
+    process_preempt_enable();
+    int status; KASSERT(process_wait(pa, &status) && status == 0); KASSERT(process_wait(pb, &status) && status == 0);
+    elf_memory_same(&before, &vb);
+    log_info("test", "ELF: dois arquivos, CR3/frames privados, RX/RO/RW-NX, argv/auxv, BSS e exit OK.");
+    /* ELF sintetico com tres PT_LOAD: permite provar as permissoes na CPU. */
+    unsigned char *fixture = kcalloc(1, 0x2000); KASSERT(fixture);
+    h = (void *)fixture;
+    *h = (struct elf64_header){.ident = {0x7f,'E','L','F',2,1,1}, .type = 2, .machine = 62,
+        .version = 1, .entry = 0x401000, .phoff = 64, .ehsize = 64, .phentsize = 56, .phnum = 3};
+    ph = (void *)(fixture + 64);
+    ph[0] = (struct elf64_phdr){.type = 1, .flags = 5, .offset = 0x1000, .vaddr = 0x401000, .align = 4096};
+    ph[1] = (struct elf64_phdr){.type = 1, .flags = 4, .offset = 0x2000, .vaddr = 0x403000, .memsz = 4096, .align = 4096};
+    ph[2] = (struct elf64_phdr){.type = 1, .flags = 6, .offset = 0x2000, .vaddr = 0x600000, .memsz = 4096, .align = 4096};
+    struct elf_probe { const char *name; const unsigned char *start, *end; uint64_t target, error; };
+#define ELF_PROBE(label, image, target_va, expected) {label, user_probe_##image##_start, user_probe_##image##_end, target_va, expected}
+    const struct elf_probe probes[] = {
+        ELF_PROBE("text-write", write, 0x401000, 7), ELF_PROBE("ro-write", write, 0x403000, 7),
+        ELF_PROBE("data-nx", execute, 0x600000, 21), ELF_PROBE("ro-nx", execute, 0x403000, 21),
+        ELF_PROBE("stack-nx", execute, USER_STACK_BASE, 21), ELF_PROBE("kernel-read", read, (uintptr_t)&kernel_secret, 5),
+        ELF_PROBE("null", read, 0, 4), ELF_PROBE("stack-low", read, USER_STACK_BASE - 4096, 4),
+        ELF_PROBE("stack-high", read, USER_STACK_TOP, 4),
+    };
+#undef ELF_PROBE
+    struct pmm_stats probe_base; struct vmm_stats probe_maps;
+    pmm_get_stats(&probe_base); vmm_get_stats(&probe_maps);
+    for (size_t i = 0; i < sizeof probes / sizeof *probes; ++i) {
+        const struct elf_probe *p = &probes[i]; size_t length = (uintptr_t)p->end - (uintptr_t)p->start;
+        KASSERT(length < 128);
+        fixture[0x1000] = 0x48; fixture[0x1001] = 0xbf; /* movabs rdi,target */
+        for (unsigned int j = 0; j < 8; ++j) fixture[0x1002 + j] = (unsigned char)(p->target >> (j * 8));
+        for (size_t j = 0; j < length; ++j) fixture[0x100a + j] = p->start[j];
+        ph[0].filesz = ph[0].memsz = 10 + length;
+        uint64_t pid = process_create_elf(p->name, fixture, 0x2000, &error);
+        KASSERT(pid && process_wait(pid, &status) && status == -270);
+        KASSERT(last_user_fault.pid == pid && last_user_fault.vector == 14 &&
+            last_user_fault.error == p->error && last_user_fault.cr2 == p->target);
+        KASSERT(kernel_secret == 0x53a9bc71de402816ull);
+        elf_memory_same(&probe_base, &probe_maps);
+        log_info("test", "ELF fault: %s erro=%p OK; recursos restaurados.", p->name, (void *)(uintptr_t)p->error);
+    }
+    kfree(fixture); elf_memory_same(&before, &vb);
+    log_info("test", "ELF: 9 protecoes na CPU, kernel ativo e memoria restaurada OK.");
 }
 
 static volatile bool syscall_test_finished;

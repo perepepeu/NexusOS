@@ -68,5 +68,15 @@ O teste ASan/UBSan cobre cabecalhos/segmentos hostis, arquivos truncados e
 desalinhados, permissoes, BSS, stack/argv, isolamento de frames, falhas em cada
 posicao de alocacao, rollback e 10000 mutacoes deterministicas.
 
+No QEMU BIOS/UEFI com 128, 512 e 5120 MiB, o teste confirma CR3 e frames
+distintos para texto/constantes/dados/stack, BSS inicial e nomes argv corretos.
+Os dois programas comecam antes de qualquer um terminar. Arquivos invalidos
+nao consomem PID nem paginas; uma falha na alocacao da pilha de kernel desfaz
+o espaco ELF inteiro. Nove processos ELF sinteticos provocam page faults reais
+ao escrever texto/constantes, executar dados/constantes/stack e acessar kernel,
+pagina zero e guardas. Cada fault encerra somente o PID e restaura os recursos.
+O teste exercita tambem elfdemo, run e wait no terminal, verificando os status
+e os contadores de PMM/VMM/heap ao final.
+
 Referencias: [ELF gABI](https://gabi.xinuos.com/elf/08-pheader.html) e
 [configuracao Limine](https://github.com/Limine-Bootloader/Limine/blob/v12.x/CONFIG.md).

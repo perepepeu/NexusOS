@@ -103,6 +103,21 @@ def type_terminal_test(monitor_path, limits=False, memory=False, pmm=False, vmm=
         while b"ELF demo: alpha=0 beta=0" not in process_log.read_bytes():
             if time.monotonic() >= deadline: raise RuntimeError("elfdemo nao concluiu os dois programas")
             time.sleep(0.03)
+        command("run alpha"); command("run beta")
+        deadline = time.monotonic() + 8
+        while True:
+            created = re.findall(rb"Processo ELF criado: (\d+) \((alpha|beta)\)\r?\n", process_log.read_bytes())
+            if len(created) == 2: break
+            if time.monotonic() >= deadline: raise RuntimeError("run nao retornou os PIDs completos")
+            time.sleep(0.03)
+        if created[0][0] == created[1][0]: raise RuntimeError("run reutilizou PID vivo")
+        for pid, _ in created:
+            command("wait " + pid.decode())
+            deadline = time.monotonic() + 8
+            wanted = b"Processo coletado: " + pid + b" status=0"
+            while wanted not in process_log.read_bytes():
+                if time.monotonic() >= deadline: raise RuntimeError("wait do ELF nao retornou status=0")
+                time.sleep(0.03)
         command("run"); command("run inexistente"); command("run alpha beta")
         command("ps"); command("pmm"); command("vmm"); command("heap"); command("echo elf-ok")
         return
@@ -568,7 +583,16 @@ def boot(mode, scenario, image, firmware, ram_mib=256):
                      b"ELF alpha: inicio CPL3, data/BSS OK", b"ELF beta: inicio CPL3, data/BSS OK",
                      b"ELF alpha: fim isolado", b"ELF beta: fim isolado", b"ELF demo: alpha=0 beta=0",
                      b"Uso: run NOME (um programa).", b"Programa nao encontrado. Digite programs.",
-                     b"Alocacoes ativas: 0"] + memory_baseline
+                     b"Alocacoes ativas: 0", b"ELF: arquivos invalidos sem PID, limites e rollback de pilha kernel OK.",
+                     b"ELF: dois arquivos, CR3/frames privados, RX/RO/RW-NX, argv/auxv, BSS e exit OK.",
+                     b"ELF: 9 protecoes na CPU, kernel ativo e memoria restaurada OK."] + memory_baseline
+        for name in ("text-write", "ro-write", "data-nx", "ro-nx", "stack-nx", "kernel-read", "null", "stack-low", "stack-high"):
+            if not re.search(rb"ELF fault: " + name.encode() + rb" erro=0x[0-9a-f]+ OK; recursos restaurados\.", text):
+                raise RuntimeError(f"Protecao ELF {name} ausente; consulte {log}")
+        starts = [text.find(b"ELF alpha: inicio CPL3"), text.find(b"ELF beta: inicio CPL3")]
+        finishes = [text.find(b"ELF alpha: fim isolado"), text.find(b"ELF beta: fim isolado")]
+        if min(starts) < 0 or min(finishes) < max(starts):
+            raise RuntimeError(f"Programas ELF nao executaram simultaneamente; consulte {log}")
         if b"[FATAL]" in text: raise RuntimeError(f"ELF causou panic; consulte {log}")
     if any(message not in text for message in required):
         raise RuntimeError(f"Diagnostico incompleto; consulte {log}")

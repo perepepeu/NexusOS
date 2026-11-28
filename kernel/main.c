@@ -225,6 +225,7 @@ void kmain(void) {
         (unsigned long long)process_pages.allocated_pages, (unsigned long long)process_maps.mapped_pages,
         (unsigned long long)process_maps.table_pages);
     programs_init(modules.response);
+    if (boot_option("selftest=elf")) elf_process_selftest();
     if (boot_option("selftest=processes")) process_selftest(false);
     if (boot_option("selftest=scheduler")) scheduler_selftest();
     if (boot_option("selftest=user")) user_mode_selftest();

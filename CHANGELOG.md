@@ -2,6 +2,10 @@
 
 ## Em desenvolvimento
 
+- Validacao QEMU de dois ELFs simultaneos com CR3/frames/argv independentes e limpeza integral.
+- Nove probes ELF na CPU verificam RX/RO/NX, memoria do kernel, pagina zero e guardas.
+- Rejeicao sem consumir PID, rollback da pilha kernel e teste dos comandos run/wait.
+
 - Criacao de processos ELF com CR3 proprio, entry do arquivo e stack inicial em CPL3.
 - Modulos Limine alpha/beta na ISO, tres PT_LOAD por programa e dados/BSS independentes.
 - Comandos programs, run NOME e elfdemo para executar dois programas em conjunto.

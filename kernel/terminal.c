@@ -234,7 +234,11 @@ static void command(char *line, const char *bootloader, const char *boot_version
         if (!program) { put("Programa nao encontrado. Digite programs.\n"); return; }
         enum elf64_result error;
         uint64_t pid = process_create_elf(program->name, program->image, program->bytes, &error);
-        if (pid) { put("Processo ELF criado: "); number(pid, true); put(" ("); put(program->name); put(")\n"); }
+        if (pid) {
+            uint64_t flags = irq_save();
+            put("Processo ELF criado: "); number(pid, true); put(" ("); put(program->name); put(")\n");
+            irq_restore(flags);
+        }
         else { put("Falha ao carregar ELF: "); put(elf64_error(error)); put("\n"); }
         return;
     }

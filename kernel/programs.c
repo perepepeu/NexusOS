@@ -50,5 +50,7 @@ bool programs_demo(int *alpha_status, int *beta_status) {
         if (pa) { (void)process_kill(pa, -9); (void)process_wait(pa, &status); }
         return false;
     }
-    return process_wait(pa, alpha_status) && process_wait(pb, beta_status);
+    bool collected_a = process_wait(pa, alpha_status);
+    bool collected_b = process_wait(pb, beta_status);
+    return collected_a && collected_b;
 }
