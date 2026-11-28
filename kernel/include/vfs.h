@@ -8,7 +8,7 @@ enum { VFS_NAME_MAX=31, VFS_PATH_MAX=256, VFS_MOUNTS=8, VFS_PROCESSES=32,
     VFS_FDS=32, VFS_FIRST_FD=3, VFS_IO_MAX=65536 };
 enum vfs_error { VFS_OK, VFS_INVALID, VFS_NOT_FOUND, VFS_EXISTS, VFS_NOT_DIR,
     VFS_IS_DIR, VFS_NAME_LONG, VFS_NO_SPACE, VFS_BAD_FD, VFS_ACCESS, VFS_BUSY,
-    VFS_READ_ONLY, VFS_UNSUPPORTED, VFS_IO, VFS_CONTEXT };
+    VFS_READ_ONLY, VFS_UNSUPPORTED, VFS_IO, VFS_CONTEXT, VFS_NOT_EMPTY, VFS_CROSS_DEVICE };
 enum vfs_type { VFS_FILE, VFS_DIRECTORY };
 enum vfs_flags { VFS_READ=1, VFS_WRITE=2, VFS_CREATE=4, VFS_EXCLUSIVE=8,
     VFS_TRUNCATE=16, VFS_APPEND=32, VFS_OPEN_DIR=64 };
@@ -35,6 +35,9 @@ struct vfs_ops {
     enum vfs_error (*truncate)(struct vfs_node *);
     enum vfs_error (*readdir)(struct vfs_node *,uint64_t,struct vfs_dirent *,bool *);
     enum vfs_error (*sync)(struct vfs_volume *);
+    enum vfs_error (*resize)(struct vfs_node *,uint64_t);
+    enum vfs_error (*rename)(struct vfs_node *,struct vfs_node *,const char *);
+    enum vfs_error (*remove)(struct vfs_node *);
 };
 struct block_device;
 struct vfs_volume {
@@ -59,6 +62,11 @@ enum vfs_error vfs_chdir(const char *);
 enum vfs_error vfs_getcwd(char *,size_t);
 enum vfs_error vfs_mount(const char *,struct vfs_volume *);
 enum vfs_error vfs_unmount(const char *);
+enum vfs_error vfs_truncate(const char *,uint64_t);
+enum vfs_error vfs_rename(const char *,const char *);
+enum vfs_error vfs_remove(const char *,bool directory);
+enum vfs_error vfs_sync(const char *);
+enum vfs_error vfs_sync_all(void);
 enum vfs_error vfs_volume_mounted(const struct vfs_volume *,bool *);
 void vfs_get_stats(struct vfs_stats *);
 /* Scheduler-only: IRQs/preemption disabled, no backend I/O or callbacks. */

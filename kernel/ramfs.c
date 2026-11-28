@@ -53,7 +53,27 @@ static enum vfs_error readdir_node(struct vfs_node *parent,uint64_t index,struct
     *out=(struct vfs_dirent){0}; *end=true; return VFS_OK;
 }
 static enum vfs_error sync_volume(struct vfs_volume *volume) { (void)volume; return VFS_OK; }
-static const struct vfs_ops ops={lookup,create,read_file,write_file,truncate_file,readdir_node,sync_volume};
+static enum vfs_error resize_file(struct vfs_node *node,uint64_t size) {
+    struct ramfs_node *n=(struct ramfs_node *)node;
+    if(n->borrowed) return VFS_READ_ONLY;
+    if(size>RAMFS_FILE_SIZE) return VFS_NO_SPACE;
+    if(size>node->size) memset(n->data+node->size,0,size-node->size);
+    else memset(n->data+size,0,node->size-size);
+    node->size=size; return VFS_OK;
+}
+static enum vfs_error rename_node(struct vfs_node *node,struct vfs_node *parent,const char *name) {
+    struct vfs_node *found;
+    if(lookup(parent,name,&found)==VFS_OK) return VFS_EXISTS;
+    node->parent=parent; strcpy(node->name,name); return VFS_OK;
+}
+static enum vfs_error remove_node(struct vfs_node *node) {
+    struct ramfs *fs=node->volume->context;
+    if(node->type==VFS_DIRECTORY) for(unsigned int i=1;i<RAMFS_NODES;++i)
+        if(fs->nodes[i].used && fs->nodes[i].node.parent==node) return VFS_NOT_EMPTY;
+    memset((struct ramfs_node *)node,0,sizeof(struct ramfs_node)); return VFS_OK;
+}
+static const struct vfs_ops ops={.lookup=lookup,.create=create,.read=read_file,.write=write_file,
+    .truncate=truncate_file,.readdir=readdir_node,.sync=sync_volume,.resize=resize_file,.rename=rename_node,.remove=remove_node};
 void ramfs_init(struct ramfs *fs) {
     if(!fs) return;
     memset(fs,0,sizeof *fs);

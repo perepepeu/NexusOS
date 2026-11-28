@@ -36,6 +36,11 @@ enum vfs_error vfs_chdir(const char *p) { CALL(vfs_core_chdir(&state,process_cur
 enum vfs_error vfs_getcwd(char *p,size_t n) { CALL(vfs_core_getcwd(&state,process_current_pid(),p,n)); }
 enum vfs_error vfs_mount(const char *p,struct vfs_volume *v) { CALL(vfs_core_mount(&state,process_current_pid(),p,v)); }
 enum vfs_error vfs_unmount(const char *p) { CALL(vfs_core_unmount(&state,process_current_pid(),p)); }
+enum vfs_error vfs_truncate(const char *p,uint64_t n) { CALL(vfs_core_truncate(&state,process_current_pid(),p,n)); }
+enum vfs_error vfs_rename(const char *a,const char *b) { CALL(vfs_core_rename(&state,process_current_pid(),a,b)); }
+enum vfs_error vfs_remove(const char *p,bool dir) { CALL(vfs_core_remove(&state,process_current_pid(),p,dir)); }
+enum vfs_error vfs_sync(const char *p) { CALL(vfs_core_sync(&state,process_current_pid(),p)); }
+enum vfs_error vfs_sync_all(void) { CALL(vfs_core_sync_all(&state)); }
 enum vfs_error vfs_volume_mounted(const struct vfs_volume *volume,bool *mounted) {
     if(!volume || !mounted) return VFS_INVALID;
     if(!enter()) return VFS_CONTEXT;

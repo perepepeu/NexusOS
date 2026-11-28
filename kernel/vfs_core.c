@@ -62,16 +62,15 @@ static enum vfs_error resolve(struct vfs *v,struct vfs_session *s,const char *pa
     if(path[length-1]=='/' && p.node->type!=VFS_DIRECTORY) return VFS_NOT_DIR;
     *out=p; return VFS_OK;
 }
-static enum vfs_error create_node(struct vfs *v,struct vfs_session *s,const char *path,enum vfs_type type,struct vfs_location *out) {
+static enum vfs_error parent_path(struct vfs *v,struct vfs_session *s,const char *path,struct vfs_location *out,char leaf[VFS_NAME_MAX+1]) {
     size_t n; enum vfs_error e=path_length(path,&n); if(e) return e;
-    if(type==VFS_FILE && path[n-1]=='/') return VFS_NOT_DIR;
     char copy[VFS_PATH_MAX]; memcpy(copy,path,n+1);
     while(n>1 && copy[n-1]=='/') copy[--n]=0;
     size_t start=n; while(start && copy[start-1]!='/') --start;
     const char *name=copy+start; size_t namesize=n-start;
     if(!namesize) return VFS_EXISTS;
     if(namesize>VFS_NAME_MAX) return VFS_NAME_LONG;
-    char leaf[VFS_NAME_MAX+1]; memcpy(leaf,name,namesize+1);
+    memcpy(leaf,name,namesize+1);
     struct vfs_location parent=s->cwd;
     if(start) {
         copy[start==1 ? 1:start-1]=0;
@@ -79,6 +78,13 @@ static enum vfs_error create_node(struct vfs *v,struct vfs_session *s,const char
     }
     if(parent.node->type!=VFS_DIRECTORY) return VFS_NOT_DIR;
     if(!strcmp(leaf,".") || !strcmp(leaf,"..")) return VFS_EXISTS;
+    *out=parent; return VFS_OK;
+}
+static enum vfs_error create_node(struct vfs *v,struct vfs_session *s,const char *path,enum vfs_type type,struct vfs_location *out) {
+    size_t n; enum vfs_error e=path_length(path,&n); if(e) return e;
+    if(type==VFS_FILE && path[n-1]=='/') return VFS_NOT_DIR;
+    struct vfs_location parent; char leaf[VFS_NAME_MAX+1];
+    e=parent_path(v,s,path,&parent,leaf); if(e) return e;
     struct vfs_volume *volume=v->mounts[parent.mount].volume;
     if(volume->read_only) return VFS_READ_ONLY;
     if(!volume->ops->create) return VFS_UNSUPPORTED;
@@ -223,6 +229,86 @@ enum vfs_error vfs_core_unmount(struct vfs *v,uint64_t pid,const char *path) {
     if(volume->ops->sync) { e=volume->ops->sync(volume); if(e) return e; }
     v->mounts[p.mount]=(struct vfs_mountpoint){0}; return VFS_OK;
 }
+static bool descendant(struct vfs_location p,struct vfs_location ancestor) {
+    if(p.mount!=ancestor.mount) return false;
+    for(unsigned int depth=0;depth<VFS_PATH_MAX;++depth) {
+        if(p.node==ancestor.node) return true;
+        if(p.node==p.node->parent) return false;
+        p.node=p.node->parent;
+    }
+    return true;
+}
+static bool referenced(struct vfs *v,struct vfs_location p) {
+    if(p.node==v->mounts[p.mount].volume->root) return true;
+    for(unsigned int i=0;i<VFS_PROCESSES;++i) if(v->sessions[i].pid) {
+        if(descendant(v->sessions[i].cwd,p)) return true;
+        for(unsigned int fd=VFS_FIRST_FD;fd<VFS_FDS;++fd)
+            if(v->sessions[i].files[fd].used && descendant(v->sessions[i].files[fd].location,p)) return true;
+    }
+    for(unsigned int i=1;i<VFS_MOUNTS;++i) if(v->mounts[i].used && descendant(v->mounts[i].covered,p)) return true;
+    return false;
+}
+static bool special_leaf(const char *path) {
+    size_t n; if(path_length(path,&n)) return false;
+    while(n && path[n-1]=='/') --n;
+    size_t start=n; while(start && path[start-1]!='/') --start;
+    return (n-start==1 && path[start]=='.') || (n-start==2 && path[start]=='.' && path[start+1]=='.');
+}
+enum vfs_error vfs_core_truncate(struct vfs *v,uint64_t pid,const char *path,uint64_t size) {
+    if(size>INT64_MAX) return VFS_INVALID;
+    struct vfs_session *s=session(v,pid,true); if(!s) return VFS_NO_SPACE;
+    struct vfs_location p; enum vfs_error e=resolve(v,s,path,&p); if(e) return e;
+    if(p.node->type!=VFS_FILE) return VFS_IS_DIR;
+    struct vfs_volume *volume=v->mounts[p.mount].volume;
+    if(volume->read_only) return VFS_READ_ONLY;
+    if(volume->ops->resize) return volume->ops->resize(p.node,size);
+    return !size && volume->ops->truncate ? volume->ops->truncate(p.node):VFS_UNSUPPORTED;
+}
+enum vfs_error vfs_core_rename(struct vfs *v,uint64_t pid,const char *from,const char *to) {
+    if(special_leaf(from)) return VFS_INVALID;
+    struct vfs_session *s=session(v,pid,true); if(!s) return VFS_NO_SPACE;
+    struct vfs_location source,dest; enum vfs_error e=resolve(v,s,from,&source); if(e) return e;
+    e=resolve(v,s,to,&dest);
+    if(!e) return same(source,dest) ? VFS_OK:VFS_EXISTS;
+    if(e!=VFS_NOT_FOUND) return e;
+    size_t length; e=path_length(to,&length); if(e) return e;
+    if(to[length-1]=='/' && source.node->type!=VFS_DIRECTORY) return VFS_NOT_DIR;
+    char leaf[VFS_NAME_MAX+1]; e=parent_path(v,s,to,&dest,leaf); if(e) return e;
+    if(source.mount!=dest.mount) return VFS_CROSS_DEVICE;
+    struct vfs_volume *volume=v->mounts[source.mount].volume;
+    if(volume->read_only) return VFS_READ_ONLY;
+    if(referenced(v,source)) return VFS_BUSY;
+    if(descendant(dest,source)) return VFS_INVALID;
+    if(!volume->ops->rename) return VFS_UNSUPPORTED;
+    return volume->ops->rename(source.node,dest.node,leaf);
+}
+enum vfs_error vfs_core_remove(struct vfs *v,uint64_t pid,const char *path,bool directory) {
+    if(special_leaf(path)) return VFS_INVALID;
+    struct vfs_session *s=session(v,pid,true); if(!s) return VFS_NO_SPACE;
+    struct vfs_location p; enum vfs_error e=resolve(v,s,path,&p); if(e) return e;
+    if(directory && p.node->type!=VFS_DIRECTORY) return VFS_NOT_DIR;
+    if(!directory && p.node->type!=VFS_FILE) return VFS_IS_DIR;
+    struct vfs_volume *volume=v->mounts[p.mount].volume;
+    if(volume->read_only) return VFS_READ_ONLY;
+    if(referenced(v,p)) return VFS_BUSY;
+    return volume->ops->remove ? volume->ops->remove(p.node):VFS_UNSUPPORTED;
+}
+enum vfs_error vfs_core_sync(struct vfs *v,uint64_t pid,const char *path) {
+    struct vfs_session *s=session(v,pid,true); if(!s) return VFS_NO_SPACE;
+    struct vfs_location p; enum vfs_error e=resolve(v,s,path,&p); if(e) return e;
+    struct vfs_volume *volume=v->mounts[p.mount].volume;
+    return volume->ops->sync ? volume->ops->sync(volume):volume->read_only ? VFS_OK:VFS_UNSUPPORTED;
+}
+enum vfs_error vfs_core_sync_all(struct vfs *v) {
+    if(!v || !v->ready) return VFS_CONTEXT;
+    enum vfs_error result=VFS_OK;
+    for(unsigned int i=0;i<VFS_MOUNTS;++i) if(v->mounts[i].used) {
+        struct vfs_volume *volume=v->mounts[i].volume;
+        enum vfs_error e=volume->ops->sync ? volume->ops->sync(volume):volume->read_only ? VFS_OK:VFS_UNSUPPORTED;
+        if(e && !result) result=e;
+    }
+    return result;
+}
 void vfs_core_reap(struct vfs *v,uint64_t pid) {
     struct vfs_session *s=session(v,pid,false); if(!s) return;
     for(int fd=VFS_FIRST_FD;fd<VFS_FDS;++fd) if(s->files[fd].used) (void)vfs_core_close(v,pid,fd);
@@ -240,6 +326,6 @@ void vfs_core_stats(const struct vfs *v,struct vfs_stats *out) {
 const char *vfs_error_name(enum vfs_error e) {
     static const char *const names[]={"OK","argumento invalido","nao encontrado","ja existe","nao e diretorio",
         "e diretorio","nome/caminho longo","limite de recursos","descritor invalido","acesso negado","volume ocupado",
-        "somente leitura","nao suportado","erro de I/O","contexto invalido"};
+        "somente leitura","nao suportado","erro de I/O","contexto invalido","diretorio nao vazio","volumes diferentes"};
     return (unsigned int)e<sizeof names/sizeof *names ? names[e]:"erro desconhecido";
 }
