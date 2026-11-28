@@ -58,3 +58,18 @@ check-scheduler prova preempcao de tarefas sem yield e preservacao de GPRs e
 flags. check-user/check-elf verificam isolamento, permissoes, guardas e falhas
 confinadas ao processo. Os testes de vazamento cobrem os ciclos exercitados;
 nao substituem testes de duracao para futuras funcionalidades.
+
+## Validacao de release
+
+```sh
+make check-release
+```
+
+O alvo compila a ISO e executa todos os nucleos de teste ASan/UBSan. Em seguida,
+duas VMs no maximo rodam em paralelo: diagnostico/escalonador usam 128, 512 e
+5120 MiB; Ring 3/syscalls/ELF/processos/memtest usam o primeiro tamanho de cada
+cenario, sempre em BIOS/UEFI. Inclui terminal/versao, boot normal e oito cenarios de energia,
+com eventos QMP de reset/shutdown e retorno ao terminal depois do reboot.
+Os logs e o resultado com SHA-256 da ISO ficam em build/release-check-*.log e
+build/release-check.json. O resultado so e criado se todas as suites passarem
+e a ISO/VERSION permanecerem iguais durante os testes.

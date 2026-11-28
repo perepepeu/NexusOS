@@ -243,6 +243,10 @@ check-monitor-unit:
 check-diagnostics: iso check-monitor-unit
 	python3 scripts/check-kernel.py --diagnostics
 
+.PHONY: check-release
+check-release: iso check-acpi check-memory-unit check-pmm-unit check-vmm-unit check-heap-unit check-processes-unit check-resources-unit check-scheduler-unit check-address-space-unit check-elf-unit check-monitor-unit
+	python3 scripts/check-release.py
+
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader
 bootloader-iso: iso

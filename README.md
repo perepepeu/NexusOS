@@ -1,7 +1,9 @@
 # NexusOS
 
-Versao atual: **0.2**. A versao fica registrada em `VERSION` e na tag Git
-`v0.2`. Veja as entregas em [CHANGELOG.md](CHANGELOG.md).
+Versao atual: **0.3**. A versao fica registrada em `VERSION` e na tag Git
+`v0.3`. Veja as entregas em [CHANGELOG.md](CHANGELOG.md).
+
+Download: [Release v0.3](https://github.com/perepepeu/NexusOS/releases/tag/v0.3).
 
 ## Compilador C e Assembly
 
@@ -932,6 +934,7 @@ continua funcionando. elfdemo deve executar normalmente depois dessa falha.
 
 ```sh
 make check-diagnostics
+make check-release  # Validacao conjunta para publicar uma versao
 ```
 
 Os testes repetem fault/recuperacao/kill, comparam PMM/VMM/heap e os numeros de

@@ -1,6 +1,8 @@
 # Historico de versoes
 
-## Em desenvolvimento
+## 0.3 - 2026-11-28
+
+- Build 0.3 e alvo check-release com suites ASan/UBSan/QEMU e verificacao SHA-256 da ISO.
 
 - Diagnostico de ps/kill/run/top com dois ELFs CPU-bound e recuperacao apos page fault.
 - Tres ciclos de app com falha, sobrevivente, nova execucao e kill com PMM/VMM/heap/PCB/TCB restaurados.
