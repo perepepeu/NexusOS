@@ -2,6 +2,10 @@
 
 ## Em desenvolvimento
 
+- Nucleo ELF64 estatico com validacao de PT_LOAD, intervalos, alinhamentos, entry e W^X.
+- Paginas privadas RX/RO/RW-NX, BSS zerada, stack/argv/auxv e rollback integral em OOM.
+- Testes ASan/UBSan de arquivos hostis e 10000 mutacoes deterministicas.
+
 - read bloqueante no PS/2 com copyout RW, leituras curtas e erros sem consumir entrada.
 - Erro ENODEV antes de inicializar o teclado; teste de kill enquanto espera entrada.
 - Comando sysdemo executa programa C interativo em Ring 3; testes com teclas pelo QMP.

@@ -14,6 +14,7 @@ KERNEL_OBJECTS += build/kernel/resource_core.o build/kernel/process_resources.o
 KERNEL_OBJECTS += build/kernel/address_space_core.o build/kernel/address_space.o
 KERNEL_OBJECTS += build/kernel/user_mode.o
 KERNEL_OBJECTS += build/kernel/syscall.o
+KERNEL_OBJECTS += build/kernel/elf64.o
 
 .PHONY: check-toolchain
 check-toolchain:
@@ -201,6 +202,12 @@ check-user: iso check-address-space-unit
 .PHONY: check-syscalls
 check-syscalls: iso check-address-space-unit
 	python3 scripts/check-kernel.py --syscalls
+
+.PHONY: check-elf-unit
+check-elf-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/elf64_test.c kernel/elf64.c kernel/address_space_core.c -o build/tests/elf64
+	build/tests/elf64
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.
 .PHONY: bootloader-iso run-bootloader run-bootloader-uefi check-bootloader
