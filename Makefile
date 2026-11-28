@@ -24,6 +24,7 @@ KERNEL_OBJECTS += build/kernel/vfs_core.o build/kernel/ramfs.o
 KERNEL_OBJECTS += build/kernel/vfs.o build/kernel/vfs_terminal.o build/kernel/vfs_test.o
 KERNEL_OBJECTS += build/kernel/bootfs_core.o build/kernel/bootfs.o
 KERNEL_OBJECTS += build/kernel/fat32.o
+KERNEL_OBJECTS += build/kernel/fat32_write.o
 KERNEL_OBJECTS += build/kernel/fat32_runtime.o
 
 .PHONY: check-toolchain
@@ -264,9 +265,15 @@ check-runtime-unit:
 	build/tests/runtime
 
 .PHONY: check-fat32-unit
+check-fat32-write-unit:
+	mkdir -p build/tests
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/fat32_write_test.c kernel/fat32.c kernel/fat32_write.c kernel/vfs_core.c kernel/block.c -o build/tests/fat32-write
+	build/tests/fat32-write
+
+.PHONY: check-fat32-write-unit
 check-fat32-unit:
 	mkdir -p build/tests
-	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/fat32_test.c kernel/fat32.c kernel/vfs_core.c kernel/block.c -o build/tests/fat32
+	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/fat32_test.c kernel/fat32.c kernel/fat32_write.c kernel/vfs_core.c kernel/block.c -o build/tests/fat32
 	build/tests/fat32
 
 .PHONY: check-fat32

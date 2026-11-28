@@ -1,19 +1,30 @@
 #include <fat32.h>
 #include <runtime.h>
+#include <fat32_internal.h>
+#define fail fat32_set_error
+#define sector fat32_read_sector
+#define fat_value fat32_get_fat
+#define next_cluster fat32_next
 static const struct vfs_ops ops;
 static uint16_t le16(const uint8_t *p) { return (uint16_t)p[0]|((uint16_t)p[1]<<8); }
 static uint32_t le32(const uint8_t *p) { return (uint32_t)le16(p)|((uint32_t)le16(p+2)<<16); }
-static enum fat32_error fail(struct fat32 *f,enum fat32_error e) { f->error=e; return e; }
-static enum fat32_error sector(struct fat32 *f,uint64_t relative,uint8_t *out) {
+enum fat32_error fail(struct fat32 *f,enum fat32_error e) { f->error=e; return e; }
+enum fat32_error sector(struct fat32 *f,uint64_t relative,uint8_t *out) {
+    if(f->poisoned) return fail(f,FAT32_IO);
     if(relative>=f->geometry.total) return fail(f,FAT32_CORRUPT);
+    uint8_t *pending=fat32_tx_find(f,relative);
+    if(pending) { memcpy(out,pending,f->geometry.sector_size); return FAT32_OK; }
     f->block_error=block_read(f->volume.device,f->geometry.start+relative,1,out,BLOCK_MAX_SECTOR);
     return f->block_error.error || f->block_error.completed!=1 ? fail(f,FAT32_IO):FAT32_OK;
 }
 static bool cluster_valid(const struct fat32 *f,uint32_t n) { return n>=2 && n<=f->geometry.clusters+1; }
-static enum fat32_error fat_value(struct fat32 *f,uint32_t cluster,uint32_t *out) {
+enum fat32_error fat_value(struct fat32 *f,uint32_t cluster,uint32_t *out) {
+    if(f->poisoned) return fail(f,FAT32_IO);
     uint64_t offset=(uint64_t)cluster*4;
     uint64_t relative=f->geometry.fat_start+offset/f->geometry.sector_size;
     if(offset/ f->geometry.sector_size>=f->geometry.fat_size) return fail(f,FAT32_CORRUPT);
+    uint8_t *pending=fat32_tx_find(f,relative);
+    if(pending) { *out=le32(pending+offset%f->geometry.sector_size)&0x0fffffff; return FAT32_OK; }
     if(!f->cache_valid || f->cache_sector!=relative) {
         f->cache_valid=false;
         enum fat32_error e=sector(f,relative,f->fat_cache); if(e) return e;
@@ -21,7 +32,7 @@ static enum fat32_error fat_value(struct fat32 *f,uint32_t cluster,uint32_t *out
     }
     *out=le32(f->fat_cache+offset%f->geometry.sector_size)&0x0fffffff; return FAT32_OK;
 }
-static enum fat32_error next_cluster(struct fat32 *f,uint32_t cluster,uint32_t *next,bool *end) {
+enum fat32_error next_cluster(struct fat32 *f,uint32_t cluster,uint32_t *next,bool *end) {
     if(!cluster_valid(f,cluster)) return fail(f,FAT32_CORRUPT);
     enum fat32_error e=fat_value(f,cluster,next); if(e) return e;
     *end=*next>=0x0ffffff8;
@@ -66,6 +77,7 @@ static enum fat32_error geometry(struct fat32 *f) {
     if(g->active_fat>=g->fat_count) return fail(f,FAT32_GEOMETRY);
     g->fat_start=g->reserved+(uint64_t)g->active_fat*g->fat_size; g->data_start=overhead;
     uint16_t info=le16(b+48),backup=le16(b+50);
+    g->info_sector=info; g->backup_sector=backup;
     if((info!=0xffff && info>=g->reserved) || (backup!=0xffff && backup>=g->reserved)) return fail(f,FAT32_GEOMETRY);
     uint8_t media=b[21];
     uint32_t value; enum fat32_error e=fat_value(f,0,&value); if(e) return e;
@@ -97,6 +109,10 @@ enum fat32_error fat32_open(struct fat32 *f,const struct block_device *device,ui
     root->node=(struct vfs_node){.volume=&f->volume,.parent=&root->node,.type=VFS_DIRECTORY};
     root->cursor=root->first; f->node_count=1; f->ready=true; return FAT32_OK;
 }
+struct fat32_node *fat32_node_slot(struct fat32 *f) {
+    for(unsigned int i=1;i<f->node_count;++i) if(!f->nodes[i].used) return &f->nodes[i];
+    return f->node_count<FAT32_NODES ? &f->nodes[f->node_count]:0;
+}
 static unsigned char upper(unsigned char c) { return c>='a' && c<='z' ? c-32:c; }
 static bool equal_name(const char *a,const char *b) {
     while(*a && upper((unsigned char)*a)==upper((unsigned char)*b)) { ++a; ++b; }
@@ -120,11 +136,13 @@ static enum fat32_error short_name(const uint8_t *entry,char *out) {
     }
     out[n]=0; return FAT32_OK;
 }
-struct directory_entry { char name[13]; enum vfs_type type; uint32_t first,size; uint64_t sector; unsigned int offset; };
+struct directory_entry { char name[13]; enum vfs_type type; uint32_t first,size,index; uint64_t sector; unsigned int offset; uint8_t attr,lfn_count; bool lfn_unsafe; };
 /* Deleted entries, labels, dot records and ALL LFN slots are never exposed as
  * files. Use the following SFN alias; neither valid nor malformed LFN is written. */
 static enum vfs_error find_entry(struct fat32_node *directory,const char *name,uint64_t index,struct directory_entry *out,bool *end) {
     struct fat32 *f=directory->node.volume->context; uint32_t current=directory->first; unsigned int scanned=0;
+    if(f->poisoned) return VFS_IO;
+    unsigned int lfn_total=0,lfn_expected=0; uint8_t lfn_sum=0; bool lfn_seen=false,lfn_bad=false;
     for(uint32_t ci=0;ci<directory->chain_length;++ci) {
         uint64_t start=f->geometry.data_start+(uint64_t)(current-2)*f->geometry.sectors_per_cluster;
         for(unsigned int s=0;s<f->geometry.sectors_per_cluster;++s) {
@@ -133,11 +151,23 @@ static enum vfs_error find_entry(struct fat32_node *directory,const char *name,u
                 if(++scanned>FAT32_DIR_LIMIT) return verror(fail(f,FAT32_LIMIT));
                 const uint8_t *p=f->data+offset;
                 if(!p[0]) { *end=true; return VFS_OK; }
-                if(p[0]==0xe5 || (p[11]&15)==15 || (p[11]&8)) continue;
+                if(p[0]==0xe5 || (p[11]&8 && (p[11]&15)!=15)) { lfn_seen=false; lfn_total=lfn_expected=0; continue; }
+                if((p[11]&15)==15) {
+                    unsigned int ord=p[0]&31;
+                    if(p[0]&64) { lfn_seen=true; lfn_total=lfn_expected=ord; lfn_sum=p[13]; lfn_bad=false; }
+                    if(!lfn_seen) { lfn_seen=true; lfn_bad=true; }
+                    if(!ord || ord>20 || (p[0]&0xa0) || ord!=lfn_expected || p[13]!=lfn_sum || p[12] || le16(p+26)) lfn_bad=true;
+                    if(lfn_expected) --lfn_expected;
+                    continue;
+                }
                 if(p[11]&0xc0) return verror(fail(f,FAT32_CORRUPT));
                 if(p[0]=='.' && (p[1]==' ' || (p[1]=='.' && p[2]==' '))) continue;
                 struct directory_entry entry={.type=(p[11]&16) ? VFS_DIRECTORY:VFS_FILE,
-                    .first=((uint32_t)le16(p+20)<<16)|le16(p+26),.size=le32(p+28),.sector=start+s,.offset=offset};
+                    .first=((uint32_t)le16(p+20)<<16)|le16(p+26),.size=le32(p+28),.sector=start+s,.offset=offset,.index=scanned-1,.attr=p[11]};
+                uint8_t checksum=0; for(unsigned int j=0;j<11;++j) checksum=(uint8_t)((checksum>>1)|(checksum<<7))+p[j];
+                bool valid_lfn=lfn_seen && !lfn_bad && !lfn_expected && lfn_sum==checksum && lfn_total;
+                entry.lfn_count=valid_lfn ? lfn_total:0; entry.lfn_unsafe=lfn_seen && !valid_lfn;
+                lfn_seen=false; lfn_total=lfn_expected=0;
                 e=short_name(p,entry.name); if(e) return verror(fail(f,e));
                 if(entry.first>0x0fffffff || (entry.type==VFS_DIRECTORY ? !cluster_valid(f,entry.first):
                     (entry.size ? !cluster_valid(f,entry.first):entry.first!=0))) return verror(fail(f,FAT32_CORRUPT));
@@ -155,12 +185,13 @@ static enum vfs_error find_entry(struct fat32_node *directory,const char *name,u
 }
 static enum vfs_error lookup(struct vfs_node *parent,const char *name,struct vfs_node **out) {
     struct fat32 *f=parent->volume->context;
-    for(unsigned int i=1;i<f->node_count;++i) if(f->nodes[i].node.parent==parent && equal_name(name,f->nodes[i].node.name)) {
+    if(f->poisoned) return VFS_IO;
+    for(unsigned int i=1;i<f->node_count;++i) if(f->nodes[i].used && f->nodes[i].node.parent==parent && equal_name(name,f->nodes[i].node.name)) {
         *out=&f->nodes[i].node; return VFS_OK;
     }
     struct directory_entry entry; bool end; enum vfs_error e=find_entry((struct fat32_node *)parent,name,0,&entry,&end);
     if(e || end) return e ? e:VFS_NOT_FOUND;
-    if(f->node_count==FAT32_NODES) return VFS_NO_SPACE;
+    struct fat32_node *n=fat32_node_slot(f); if(!n) return VFS_NO_SPACE;
     uint32_t length=0;
     if(entry.first) {
         enum fat32_error fe=fat32_chain(f,entry.first,&length); if(fe) return verror(fe);
@@ -176,13 +207,15 @@ static enum vfs_error lookup(struct vfs_node *parent,const char *name,struct vfs
             p=p->parent;
         }
     }
-    struct fat32_node *n=&f->nodes[f->node_count++];
+    if(n==&f->nodes[f->node_count]) ++f->node_count;
     *n=(struct fat32_node){.node={.volume=&f->volume,.parent=parent,.type=entry.type,.size=entry.size},
-        .first=entry.first,.chain_length=length,.cursor=entry.first,.entry_sector=entry.sector,.entry_offset=entry.offset};
+        .first=entry.first,.chain_length=length,.cursor=entry.first,.entry_sector=entry.sector,.entry_offset=entry.offset,
+        .entry_index=entry.index,.attributes=entry.attr,.lfn_count=entry.lfn_count,.lfn_unsafe=entry.lfn_unsafe,.used=true};
     strcpy(n->node.name,entry.name); *out=&n->node; return VFS_OK;
 }
 static struct vfs_io read_file(struct vfs_node *node,uint64_t offset,void *buffer,size_t bytes) {
     struct fat32_node *n=(struct fat32_node *)node; struct fat32 *f=node->volume->context;
+    if(f->poisoned) return (struct vfs_io){VFS_IO,0};
     if(offset>=node->size) return (struct vfs_io){VFS_OK,0};
     if(bytes>node->size-offset) bytes=node->size-offset;
     uint32_t index=(uint32_t)(offset/f->geometry.cluster_size),current=n->first,at=0;
@@ -214,10 +247,11 @@ static enum vfs_error readdir_node(struct vfs_node *node,uint64_t index,struct v
     if(!e && !*end) { *out=(struct vfs_dirent){.type=entry.type,.size=entry.size}; strcpy(out->name,entry.name); }
     return e;
 }
-static enum vfs_error sync_volume(struct vfs_volume *v) { (void)v; return VFS_OK; }
-static const struct vfs_ops ops={.lookup=lookup,.read=read_file,.readdir=readdir_node,.sync=sync_volume};
+static const struct vfs_ops ops={.lookup=lookup,.read=read_file,.readdir=readdir_node,.sync=fat32_sync,
+    .create=fat32_create,.write=fat32_write,.truncate=fat32_truncate,.resize=fat32_resize,.rename=fat32_rename,.remove=fat32_remove};
 const char *fat32_error_name(enum fat32_error e) {
     static const char *const names[]={"OK","intervalo/dispositivo invalido","BPB/geometria invalida","volume nao e FAT32",
-        "versao FAT32 nao suportada","erro de leitura","cadeia/entrada invalida","referencia circular","limite de percurso"};
+        "versao FAT32 nao suportada","erro de I/O","cadeia/entrada invalida","referencia circular","limite de percurso",
+        "disco cheio","somente leitura","volume sujo/inconsistente"};
     return (unsigned int)e<sizeof names/sizeof *names ? names[e]:"erro desconhecido";
 }
