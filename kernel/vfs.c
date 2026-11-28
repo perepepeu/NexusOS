@@ -41,6 +41,13 @@ enum vfs_error vfs_rename(const char *a,const char *b) { CALL(vfs_core_rename(&s
 enum vfs_error vfs_remove(const char *p,bool dir) { CALL(vfs_core_remove(&state,process_current_pid(),p,dir)); }
 enum vfs_error vfs_sync(const char *p) { CALL(vfs_core_sync(&state,process_current_pid(),p)); }
 enum vfs_error vfs_sync_all(void) { CALL(vfs_core_sync_all(&state)); }
+enum vfs_error vfs_touch(const char *p) { CALL(vfs_core_touch(&state,process_current_pid(),p)); }
+enum vfs_error vfs_copy_file(const char *a,const char *b) { CALL(vfs_core_copy_file(&state,process_current_pid(),a,b)); }
+enum vfs_error vfs_statvfs(const char *p,struct vfs_space *out) { CALL(vfs_core_statvfs(&state,process_current_pid(),p,out)); }
+size_t vfs_mount_snapshot(struct vfs_mount_info *out,size_t capacity) {
+    if(!enter()) return 0;
+    size_t count=vfs_core_mount_snapshot(&state,out,capacity); leave(); return count;
+}
 enum vfs_error vfs_volume_mounted(const struct vfs_volume *volume,bool *mounted) {
     if(!volume || !mounted) return VFS_INVALID;
     if(!enter()) return VFS_CONTEXT;

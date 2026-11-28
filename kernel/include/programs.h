@@ -2,6 +2,7 @@
 #define NEXUS_PROGRAMS_H
 #include <limine.h>
 #include <elf64.h>
+#include <vfs.h>
 enum { PROGRAMS_MAX = 8, PROGRAM_NAME_MAX = 23 };
 struct boot_program {
     char name[PROGRAM_NAME_MAX + 1];
@@ -17,4 +18,9 @@ bool programs_demo(int *alpha_status, int *beta_status);
 void elf_process_selftest(void);
 void process_diagnostic_selftest(void);
 void fs_syscall_selftest(void);
+void fs_disk_selftest(void);
+void fs_disk_persist_selftest(void);
+void fs_disk_crash_selftest(void);
+void fs_disk_recovery_selftest(bool repaired);
+uint64_t process_create_elf_file(const char *,enum elf64_result *,enum vfs_error *);
 #endif

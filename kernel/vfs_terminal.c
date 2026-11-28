@@ -11,6 +11,12 @@ static bool demo_ready;
 static void put(const char *p) { uint64_t f=irq_save(); console_write(p); serial_write(p); irq_restore(f); }
 static void error(enum vfs_error e) { if(e) { put("VFS: "); put(vfs_error_name(e)); put(".\n"); } }
 static bool single(const char *s) { while(*s) { if(*s==' ' || *s=='\t') return false; ++s; } return true; }
+static void print_space(const char *path,const struct vfs_space *space,enum vfs_error e) {
+    if(e) { log_info("df","%s: %s",path,vfs_error_name(e)); return; }
+    if(!space->free_known) log_info("df","%s: total=%llu bytes; livres=desconhecido",path,(unsigned long long)space->total_bytes);
+    else log_info("df","%s: total=%llu bytes; livres=%llu bytes%s",path,(unsigned long long)space->total_bytes,
+        (unsigned long long)space->free_bytes,space->approximate ? " (estimativa)":"");
+}
 bool vfs_terminal_command(const char *name,const char *args) {
     enum vfs_error e=VFS_OK;
     if(!strcmp(name,"pwd")) {
@@ -22,6 +28,9 @@ bool vfs_terminal_command(const char *name,const char *args) {
     } else if(!strcmp(name,"mkdir")) {
         if(!*args || !single(args)) { put("Uso: mkdir CAMINHO\n"); return true; }
         e=vfs_mkdir(args);
+    } else if(!strcmp(name,"touch")) {
+        if(!*args || !single(args)) { put("Uso: touch CAMINHO\n"); return true; }
+        e=vfs_touch(args);
     } else if(!strcmp(name,"ls")) {
         if(!single(args)) { put("Uso: ls [CAMINHO]\n"); return true; }
         int fd; e=vfs_open(*args ? args:".",VFS_READ|VFS_OPEN_DIR,&fd);
@@ -63,7 +72,13 @@ bool vfs_terminal_command(const char *name,const char *args) {
             enum vfs_error closed=vfs_close(fd); if(!e) e=closed;
         }
     } else if(!strcmp(name,"mount")) {
-        if(!*args || !single(args)) { put("Uso: mount DIRETORIO (volume RAMFS de demonstracao)\n"); return true; }
+        if(!*args) {
+            struct vfs_mount_info mounts[VFS_MOUNTS]; size_t count=vfs_mount_snapshot(mounts,VFS_MOUNTS);
+            for(size_t i=0;i<count && i<VFS_MOUNTS;++i) log_info("mount","%s em %s (%s), dispositivo=%s",
+                mounts[i].type,mounts[i].path,mounts[i].read_only ? "RO":"RW",mounts[i].device[0] ? mounts[i].device:"RAM");
+            return true;
+        }
+        if(!single(args)) { put("Uso: mount DIRETORIO (volume RAMFS de demonstracao)\n"); return true; }
         if(!demo_ready) { ramfs_init(&demo); demo_ready=true; }
         e=vfs_mount(args,&demo.volume); if(!e) put("Volume RAMFS montado.\n");
     } else if(!strcmp(name,"umount")) {
@@ -72,7 +87,7 @@ bool vfs_terminal_command(const char *name,const char *args) {
     } else if(!strcmp(name,"rm") || !strcmp(name,"rmdir")) {
         if(!*args || !single(args)) { put("Uso: rm|rmdir CAMINHO\n"); return true; }
         e=vfs_remove(args,!strcmp(name,"rmdir"));
-    } else if(!strcmp(name,"mv") || !strcmp(name,"truncate")) {
+    } else if(!strcmp(name,"mv") || !strcmp(name,"cp") || !strcmp(name,"truncate")) {
         char buffer[VFS_PATH_MAX]; size_t bytes=strlen(args);
         if(!bytes || bytes>=sizeof buffer) { put("Uso: mv ORIGEM DESTINO | truncate CAMINHO [BYTES]\n"); return true; }
         memcpy(buffer,args,bytes+1); char *second=buffer;
@@ -80,9 +95,9 @@ bool vfs_terminal_command(const char *name,const char *args) {
         if(*second) *second++=0;
         while(*second==' ' || *second=='\t') ++second;
         if(!single(second)) { put("Argumentos demais.\n"); return true; }
-        if(!strcmp(name,"mv")) {
-            if(!*second) { put("Uso: mv ORIGEM DESTINO\n"); return true; }
-            e=vfs_rename(buffer,second);
+        if(strcmp(name,"truncate")) {
+            if(!*second) { put("Uso: mv|cp ORIGEM DESTINO\n"); return true; }
+            e=!strcmp(name,"cp") ? vfs_copy_file(buffer,second):vfs_rename(buffer,second);
         } else {
             uint64_t size=0;
             for(char *p=second;*p;++p) {
@@ -94,6 +109,11 @@ bool vfs_terminal_command(const char *name,const char *args) {
     } else if(!strcmp(name,"sync")) {
         if(!single(args)) { put("Uso: sync [CAMINHO]\n"); return true; }
         e=*args ? vfs_sync(args):vfs_sync_all(); if(!e) put("Dados e metadados sincronizados.\n");
+    } else if(!strcmp(name,"df")) {
+        if(!single(args)) { put("Uso: df [CAMINHO]\n"); return true; }
+        if(*args) { struct vfs_space space; e=vfs_statvfs(args,&space); print_space(args,&space,e); return true; }
+        struct vfs_mount_info mounts[VFS_MOUNTS]; size_t count=vfs_mount_snapshot(mounts,VFS_MOUNTS);
+        for(size_t i=0;i<count && i<VFS_MOUNTS;++i) print_space(mounts[i].path,&mounts[i].space,mounts[i].error);
     } else if(!strcmp(name,"vfsinfo")) {
         if(*args) { put("Uso: vfsinfo\n"); return true; }
         struct vfs_stats s; vfs_get_stats(&s);

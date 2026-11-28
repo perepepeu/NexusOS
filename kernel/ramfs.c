@@ -72,12 +72,26 @@ static enum vfs_error remove_node(struct vfs_node *node) {
         if(fs->nodes[i].used && fs->nodes[i].node.parent==node) return VFS_NOT_EMPTY;
     memset((struct ramfs_node *)node,0,sizeof(struct ramfs_node)); return VFS_OK;
 }
+static enum vfs_error space_info(struct vfs_volume *volume,struct vfs_space *out) {
+    struct ramfs *fs=volume->context;
+    *out=(struct vfs_space){.block_size=RAMFS_FILE_SIZE,.free_known=true};
+    if(volume->read_only) {
+        for(unsigned int i=1;i<RAMFS_NODES;++i) if(fs->nodes[i].used && fs->nodes[i].node.type==VFS_FILE) out->total_bytes+=fs->nodes[i].node.size;
+    } else {
+        out->total_bytes=(RAMFS_NODES-1)*RAMFS_FILE_SIZE;
+        for(unsigned int i=1;i<RAMFS_NODES;++i) {
+            if(!fs->nodes[i].used) out->free_bytes+=RAMFS_FILE_SIZE;
+            else if(fs->nodes[i].node.type==VFS_FILE && !fs->nodes[i].borrowed) out->free_bytes+=RAMFS_FILE_SIZE-fs->nodes[i].node.size;
+        }
+    }
+    return VFS_OK;
+}
 static const struct vfs_ops ops={.lookup=lookup,.create=create,.read=read_file,.write=write_file,
-    .truncate=truncate_file,.readdir=readdir_node,.sync=sync_volume,.resize=resize_file,.rename=rename_node,.remove=remove_node};
+    .truncate=truncate_file,.readdir=readdir_node,.sync=sync_volume,.resize=resize_file,.rename=rename_node,.remove=remove_node,.space=space_info};
 void ramfs_init(struct ramfs *fs) {
     if(!fs) return;
     memset(fs,0,sizeof *fs);
-    fs->volume=(struct vfs_volume){.ops=&ops,.root=&fs->nodes[0].node,.context=fs};
+    fs->volume=(struct vfs_volume){.ops=&ops,.root=&fs->nodes[0].node,.context=fs,.type="ramfs"};
     fs->nodes[0].used=true;
     fs->nodes[0].node=(struct vfs_node){.volume=&fs->volume,.parent=&fs->nodes[0].node,.type=VFS_DIRECTORY};
 }

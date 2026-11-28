@@ -254,15 +254,15 @@ static void command(char *line, const char *bootloader, const char *boot_version
         if (end == args || *tail) { put("Uso: run NOME (um programa).\n"); return; }
         *end = 0;
         const struct boot_program *program = programs_find(args);
-        if (!program) { put("Programa nao encontrado. Digite programs.\n"); return; }
-        enum elf64_result error;
-        uint64_t pid = process_create_elf(program->name, program->image, program->bytes, &error);
+        enum elf64_result error; enum vfs_error io=VFS_OK;
+        uint64_t pid = program ? process_create_elf(program->name, program->image, program->bytes, &error):process_create_elf_file(args,&error,&io);
+        if(!program && io==VFS_NOT_FOUND) { put("Programa nao encontrado. Digite programs.\n"); return; }
         if (pid) {
             uint64_t flags = irq_save();
-            put("Processo ELF criado: "); number(pid, true); put(" ("); put(program->name); put(")\n");
+            put("Processo ELF criado: "); number(pid, true); put(" ("); put(program ? program->name:args); put(")\n");
             irq_restore(flags);
         }
-        else { put("Falha ao carregar ELF: "); put(elf64_error(error)); put("\n"); }
+        else { put("Falha ao carregar ELF: "); put(io ? vfs_error_name(io):elf64_error(error)); put("\n"); }
         return;
     }
     if (equal(name, "kill") || equal(name, "wait")) {
@@ -296,6 +296,7 @@ static void command(char *line, const char *bootloader, const char *boot_version
         put("FAT32 escrita: mountfatrw DISCO DIRETORIO [LBA SETORES]\n");
         put("Arquivos: pwd cd ls mkdir cat write append mount umount vfsinfo\n");
         put("Alterar arquivos: mv rm rmdir truncate sync\n");
+        put("Ferramentas: touch cp df; run NOME ou run CAMINHO_ELF\n");
         put("Memoria: memory meminfo memmap pmm vmm heap memtest\n");
         put("Processos: ps threads spawn spawnuser kill PID wait PID sched\n");
         put("Usuario: sysdemo (programa interativo de syscalls em Ring 3)\n");

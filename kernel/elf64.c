@@ -89,6 +89,6 @@ rollback:
 const char *elf64_error(enum elf64_result error) {
     static const char *const messages[] = {"OK", "argumento invalido", "cabecalho invalido", "formato/recurso nao suportado",
         "arquivo truncado", "segmento invalido", "permissoes invalidas", "paginas sobrepostas/reservadas",
-        "limite excedido", "entry point invalido", "memoria insuficiente", "estado interno invalido"};
+        "limite excedido", "entry point invalido", "memoria insuficiente", "estado interno invalido", "erro de leitura VFS"};
     return (unsigned int)error < sizeof messages / sizeof *messages ? messages[error] : "erro desconhecido";
 }

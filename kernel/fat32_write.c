@@ -69,6 +69,7 @@ static enum fat32_error commit(struct fat32 *f,bool unlink_first) {
             if(s->relative>=f->geometry.data_start) { e=flush(f); if(e) return e; }
         }
         e=flush(f); if(e) return e;
+        if(!phase && !unlink_first && f->checkpoint) f->checkpoint(f,1);
     }
     f->geometry.free_clusters=f->tx.free_after; f->geometry.free_known=true;
     f->geometry.next_free=f->tx.free_after ? f->tx.next_after:UINT32_MAX;

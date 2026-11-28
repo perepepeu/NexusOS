@@ -100,7 +100,7 @@ static enum fat32_error geometry(struct fat32 *f) {
 enum fat32_error fat32_open(struct fat32 *f,const struct block_device *device,uint64_t start,uint64_t length) {
     if(!f || !block_valid_device(device) || !length || start>=device->sectors || length>device->sectors-start) return FAT32_ARGUMENT;
     memset(f,0,sizeof *f);
-    f->volume=(struct vfs_volume){.ops=&ops,.root=&f->nodes[0].node,.context=f,.device=device,.read_only=true};
+    f->volume=(struct vfs_volume){.ops=&ops,.root=&f->nodes[0].node,.context=f,.device=device,.read_only=true,.type="fat32"};
     f->geometry=(struct fat32_geometry){.start=start,.length=length,.total=length};
     enum fat32_error e=sector(f,0,f->data); if(e) return e;
     e=geometry(f); if(e) return e;
@@ -247,8 +247,15 @@ static enum vfs_error readdir_node(struct vfs_node *node,uint64_t index,struct v
     if(!e && !*end) { *out=(struct vfs_dirent){.type=entry.type,.size=entry.size}; strcpy(out->name,entry.name); }
     return e;
 }
+static enum vfs_error space_info(struct vfs_volume *volume,struct vfs_space *out) {
+    struct fat32 *f=volume->context; if(f->poisoned) return VFS_IO;
+    *out=(struct vfs_space){.total_bytes=(uint64_t)f->geometry.clusters*f->geometry.cluster_size,
+        .free_bytes=f->geometry.free_known ? (uint64_t)f->geometry.free_clusters*f->geometry.cluster_size:0,
+        .block_size=f->geometry.cluster_size,.free_known=f->geometry.free_known,.approximate=!f->writable};
+    return VFS_OK;
+}
 static const struct vfs_ops ops={.lookup=lookup,.read=read_file,.readdir=readdir_node,.sync=fat32_sync,
-    .create=fat32_create,.write=fat32_write,.truncate=fat32_truncate,.resize=fat32_resize,.rename=fat32_rename,.remove=fat32_remove};
+    .create=fat32_create,.write=fat32_write,.truncate=fat32_truncate,.resize=fat32_resize,.rename=fat32_rename,.remove=fat32_remove,.space=space_info};
 const char *fat32_error_name(enum fat32_error e) {
     static const char *const names[]={"OK","intervalo/dispositivo invalido","BPB/geometria invalida","volume nao e FAT32",
         "versao FAT32 nao suportada","erro de I/O","cadeia/entrada invalida","referencia circular","limite de percurso",

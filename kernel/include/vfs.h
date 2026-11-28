@@ -15,6 +15,8 @@ enum vfs_flags { VFS_READ=1, VFS_WRITE=2, VFS_CREATE=4, VFS_EXCLUSIVE=8,
 enum vfs_whence { VFS_SEEK_SET, VFS_SEEK_CUR, VFS_SEEK_END };
 struct vfs_io { enum vfs_error error; size_t count; };
 struct vfs_stat { enum vfs_type type; uint64_t size; };
+struct vfs_space { uint64_t total_bytes,free_bytes; uint32_t block_size; bool free_known,approximate; };
+struct vfs_mount_info { char path[VFS_PATH_MAX],type[12],device[16]; struct vfs_space space; enum vfs_error error; bool read_only; };
 struct vfs_dirent { char name[VFS_NAME_MAX+1]; enum vfs_type type; uint64_t size; };
 struct vfs_volume;
 struct vfs_node {
@@ -39,6 +41,7 @@ struct vfs_ops {
     enum vfs_error (*resize)(struct vfs_node *,uint64_t);
     enum vfs_error (*rename)(struct vfs_node *,struct vfs_node *,const char *);
     enum vfs_error (*remove)(struct vfs_node *);
+    enum vfs_error (*space)(struct vfs_volume *,struct vfs_space *);
 };
 struct block_device;
 struct vfs_volume {
@@ -47,6 +50,7 @@ struct vfs_volume {
     void *context;
     const struct block_device *device; /* Optional; filesystem interprets blocks. */
     bool read_only;
+    const char *type;
 };
 struct vfs_stats { unsigned int mounts, sessions, descriptors; };
 
@@ -68,6 +72,10 @@ enum vfs_error vfs_rename(const char *,const char *);
 enum vfs_error vfs_remove(const char *,bool directory);
 enum vfs_error vfs_sync(const char *);
 enum vfs_error vfs_sync_all(void);
+enum vfs_error vfs_touch(const char *);
+enum vfs_error vfs_copy_file(const char *,const char *);
+enum vfs_error vfs_statvfs(const char *,struct vfs_space *);
+size_t vfs_mount_snapshot(struct vfs_mount_info *,size_t);
 enum vfs_error vfs_volume_mounted(const struct vfs_volume *,bool *);
 void vfs_get_stats(struct vfs_stats *);
 /* Scheduler-only: IRQs/preemption disabled, no backend I/O or callbacks. */

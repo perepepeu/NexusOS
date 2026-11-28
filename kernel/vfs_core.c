@@ -1,5 +1,6 @@
 #include <vfs_internal.h>
 #include <runtime.h>
+#include <block.h>
 
 static bool valid_volume(const struct vfs_volume *v) {
     return v && v->ops && v->ops->lookup && v->root && v->root->volume==v &&
@@ -184,10 +185,9 @@ enum vfs_error vfs_core_chdir(struct vfs *v,uint64_t pid,const char *path) {
     if(p.node->type!=VFS_DIRECTORY) return VFS_NOT_DIR;
     --v->mounts[s->cwd.mount].users; s->cwd=p; ++v->mounts[p.mount].users; return VFS_OK;
 }
-enum vfs_error vfs_core_getcwd(struct vfs *v,uint64_t pid,char *out,size_t bytes) {
+static enum vfs_error format_location(struct vfs *v,struct vfs_location p,char *out,size_t bytes) {
     if(!out || !bytes) return VFS_INVALID;
-    struct vfs_session *s=session(v,pid,true); if(!s) return VFS_NO_SPACE;
-    char reverse[VFS_PATH_MAX]; size_t used=0; struct vfs_location p=s->cwd;
+    char reverse[VFS_PATH_MAX]; size_t used=0;
     for(unsigned int depth=0;depth<VFS_PATH_MAX;++depth) {
         if(!p.mount && p.node==v->mounts[0].volume->root) {
             if(!used) reverse[used++]='/';
@@ -202,6 +202,10 @@ enum vfs_error vfs_core_getcwd(struct vfs *v,uint64_t pid,char *out,size_t bytes
         reverse[used++]='/'; p.node=p.node->parent;
     }
     return VFS_IO;
+}
+enum vfs_error vfs_core_getcwd(struct vfs *v,uint64_t pid,char *out,size_t bytes) {
+    struct vfs_session *s=session(v,pid,true); if(!s) return VFS_NO_SPACE;
+    return format_location(v,s->cwd,out,bytes);
 }
 enum vfs_error vfs_core_mount(struct vfs *v,uint64_t pid,const char *path,struct vfs_volume *volume) {
     if(!valid_volume(volume)) return VFS_INVALID;
@@ -308,6 +312,56 @@ enum vfs_error vfs_core_sync_all(struct vfs *v) {
         if(e && !result) result=e;
     }
     return result;
+}
+enum vfs_error vfs_core_touch(struct vfs *v,uint64_t pid,const char *path) {
+    struct vfs_session *s=session(v,pid,true); if(!s) return VFS_NO_SPACE;
+    struct vfs_location p; enum vfs_error e=resolve(v,s,path,&p);
+    if(e==VFS_NOT_FOUND) return create_node(v,s,path,VFS_FILE,&p);
+    if(e) return e;
+    return vfs_core_truncate(v,pid,path,p.node->size);
+}
+enum vfs_error vfs_core_copy_file(struct vfs *v,uint64_t pid,const char *from,const char *to) {
+    struct vfs_session *s=session(v,pid,true); if(!s) return VFS_NO_SPACE;
+    struct vfs_location source,dest; enum vfs_error e=resolve(v,s,from,&source); if(e) return e;
+    if(source.node->type!=VFS_FILE) return VFS_IS_DIR;
+    e=resolve(v,s,to,&dest);
+    if(!e && same(source,dest)) return VFS_INVALID;
+    if(e && e!=VFS_NOT_FOUND) return e;
+    int input,output; e=vfs_core_open(v,pid,from,VFS_READ,&input); if(e) return e;
+    e=vfs_core_open(v,pid,to,VFS_WRITE|VFS_CREATE|VFS_TRUNCATE,&output);
+    if(e) { (void)vfs_core_close(v,pid,input); return e; }
+    unsigned char buffer[2048];
+    for(;;) {
+        struct vfs_io r=vfs_core_read(v,pid,input,buffer,sizeof buffer);
+        if(r.error) { e=r.error; break; }
+        if(!r.count) break;
+        struct vfs_io w=vfs_core_write(v,pid,output,buffer,r.count);
+        if(w.error || w.count!=r.count) { e=w.error ? w.error:VFS_IO; break; }
+    }
+    (void)vfs_core_close(v,pid,input); (void)vfs_core_close(v,pid,output); return e;
+}
+enum vfs_error vfs_core_statvfs(struct vfs *v,uint64_t pid,const char *path,struct vfs_space *out) {
+    if(!out) return VFS_INVALID;
+    struct vfs_session *s=session(v,pid,true); if(!s) return VFS_NO_SPACE;
+    struct vfs_location p; enum vfs_error e=resolve(v,s,path,&p); if(e) return e;
+    struct vfs_volume *volume=v->mounts[p.mount].volume;
+    *out=(struct vfs_space){0}; return volume->ops->space ? volume->ops->space(volume,out):VFS_UNSUPPORTED;
+}
+size_t vfs_core_mount_snapshot(struct vfs *v,struct vfs_mount_info *out,size_t capacity) {
+    if(!v || !v->ready || (!out && capacity)) return 0;
+    size_t count=0;
+    for(unsigned int i=0;i<VFS_MOUNTS;++i) if(v->mounts[i].used) {
+        if(count<capacity) {
+            struct vfs_volume *volume=v->mounts[i].volume;
+            struct vfs_mount_info *m=&out[count]; *m=(struct vfs_mount_info){.read_only=volume->read_only};
+            m->error=format_location(v,(struct vfs_location){i,volume->root},m->path,sizeof m->path);
+            strncpy(m->type,volume->type ? volume->type:"fs",sizeof m->type-1);
+            if(volume->device) strncpy(m->device,volume->device->name,sizeof m->device-1);
+            if(!m->error) m->error=volume->ops->space ? volume->ops->space(volume,&m->space):VFS_UNSUPPORTED;
+        }
+        ++count;
+    }
+    return count;
 }
 void vfs_core_reap(struct vfs *v,uint64_t pid) {
     struct vfs_session *s=session(v,pid,false); if(!s) return;

@@ -38,6 +38,10 @@ enum vfs_error vfs_core_rename(struct vfs *,uint64_t,const char *,const char *);
 enum vfs_error vfs_core_remove(struct vfs *,uint64_t,const char *,bool);
 enum vfs_error vfs_core_sync(struct vfs *,uint64_t,const char *);
 enum vfs_error vfs_core_sync_all(struct vfs *);
+enum vfs_error vfs_core_touch(struct vfs *,uint64_t,const char *);
+enum vfs_error vfs_core_copy_file(struct vfs *,uint64_t,const char *,const char *);
+enum vfs_error vfs_core_statvfs(struct vfs *,uint64_t,const char *,struct vfs_space *);
+size_t vfs_core_mount_snapshot(struct vfs *,struct vfs_mount_info *,size_t);
 void vfs_core_reap(struct vfs *,uint64_t);
 void vfs_core_stats(const struct vfs *,struct vfs_stats *);
 #endif

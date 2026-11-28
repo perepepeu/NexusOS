@@ -162,5 +162,16 @@ int main(void) {
     assert(vfs_core_remove(&v,1,"/a",true)==VFS_BUSY);
     ok(vfs_core_sync(&v,1,"/b")); ok(vfs_core_sync_all(&v));
     ok(vfs_core_unmount(&v,1,"/a"));
+    reset(); ok(vfs_core_mkdir(&v,1,"/a")); ok(vfs_core_mount(&v,1,"/a",&a.volume));
+    ok(vfs_core_touch(&v,1,"/file")); fd=open_file(1,"/file",VFS_READ|VFS_WRITE);
+    assert(vfs_core_write(&v,1,fd,"copy-preserve",13).count==13); ok(vfs_core_close(&v,1,fd));
+    ok(vfs_core_touch(&v,1,"/file")); ok(vfs_core_stat(&v,1,"/file",&st)); assert(st.size==13);
+    assert(vfs_core_copy_file(&v,1,"/file","/./file")==VFS_INVALID);
+    ok(vfs_core_copy_file(&v,1,"/file","/a/copy"));
+    fd=open_file(1,"/a/copy",VFS_READ); assert(vfs_core_read(&v,1,fd,buffer,sizeof buffer).count==13 && !memcmp(buffer,"copy-preserve",13)); ok(vfs_core_close(&v,1,fd));
+    struct vfs_space disk_space; ok(vfs_core_statvfs(&v,1,"/a",&disk_space));
+    assert(disk_space.free_known && disk_space.total_bytes==(RAMFS_NODES-1)*RAMFS_FILE_SIZE && disk_space.free_bytes==disk_space.total_bytes-13);
+    struct vfs_mount_info mounts[VFS_MOUNTS]; assert(vfs_core_mount_snapshot(&v,mounts,VFS_MOUNTS)==2);
+    assert(!strcmp(mounts[0].path,"/") && !strcmp(mounts[1].path,"/a") && !strcmp(mounts[1].type,"ramfs"));
     puts("OK: VFS caminhos, mounts/FDs, rename/move/remove, truncate/zeros, referencias, cross-volume, sync e reap.");
 }

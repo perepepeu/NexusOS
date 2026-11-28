@@ -16,7 +16,9 @@ KERNEL_OBJECTS += build/kernel/user_mode.o
 KERNEL_OBJECTS += build/kernel/syscall.o
 KERNEL_OBJECTS += build/kernel/syscall_fs.o
 KERNEL_OBJECTS += build/kernel/fs_syscall_test.o
+KERNEL_OBJECTS += build/kernel/fs_disk_test.o
 KERNEL_OBJECTS += build/kernel/elf64.o
+KERNEL_OBJECTS += build/kernel/elf_file.o
 KERNEL_OBJECTS += build/kernel/programs.o
 KERNEL_OBJECTS += build/kernel/monitor.o
 KERNEL_OBJECTS += build/kernel/block.o
@@ -96,6 +98,12 @@ build/user/busy.elf: build/user/elf_busy.o build/user/elf_start.o user/elf_linke
 
 build/user/fsio.elf: build/user/elf_fsio.o build/user/elf_start.o user/elf_linker.ld
 	$(LD) -nostdlib -m elf_x86_64 -z max-page-size=0x1000 -T user/elf_linker.ld build/user/elf_start.o build/user/elf_fsio.o -o $@
+
+build/user/hold.elf: build/user/elf_fshold.o build/user/elf_start.o user/elf_linker.ld
+	$(LD) -nostdlib -m elf_x86_64 -z max-page-size=0x1000 -T user/elf_linker.ld build/user/elf_start.o build/user/elf_fshold.o -o $@
+
+build/user/fsfault.elf: build/user/elf_fsfault.o build/user/elf_start.o user/elf_linker.ld
+	$(LD) -nostdlib -m elf_x86_64 -z max-page-size=0x1000 -T user/elf_linker.ld build/user/elf_start.o build/user/elf_fsfault.o -o $@
 
 build/user/syscall_registers.o: user/syscall_registers.asm build/include/syscall_abi.inc Makefile
 	mkdir -p $(@D)
@@ -271,11 +279,15 @@ check-runtime-unit:
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-builtin -Ikernel/include -Dmemset=nexus_memset -Dmemcpy=nexus_memcpy -Dmemmove=nexus_memmove -Dmemcmp=nexus_memcmp -Dstrlen=nexus_strlen -Dstrcmp=nexus_strcmp -Dstrncmp=nexus_strncmp -Dstrcpy=nexus_strcpy -Dstrncpy=nexus_strncpy tests/runtime_test.c kernel/runtime.c -o build/tests/runtime
 	build/tests/runtime
 
-.PHONY: check-fat32-write-unit
+.PHONY: check-fs-syscalls
 check-fs-syscalls: iso build/user/fsio.elf
 	python3 scripts/check-fs-syscalls.py
 
-.PHONY: check-fs-syscalls
+.PHONY: check-fs-integration
+check-fs-integration: iso build/user/fsio.elf build/user/hold.elf build/user/fsfault.elf check-vfs-unit check-elf-unit check-fat32-write-unit
+	python3 scripts/check-fs-integration.py
+
+.PHONY: check-fat32-write-unit
 check-fat32-write-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/fat32_write_test.c kernel/fat32.c kernel/fat32_write.c kernel/vfs_core.c kernel/block.c -o build/tests/fat32-write
@@ -354,7 +366,7 @@ check-diagnostics: iso check-monitor-unit
 	python3 scripts/check-kernel.py --diagnostics
 
 .PHONY: check-release
-check-release: iso check-acpi check-memory-unit check-pmm-unit check-vmm-unit check-heap-unit check-processes-unit check-resources-unit check-scheduler-unit check-address-space-unit check-elf-unit check-monitor-unit check-runtime-unit check-console-unit check-block-unit check-ata-unit check-vfs-unit check-ramfs-unit check-bootfs-unit check-fat32-unit check-fat32-write-unit
+check-release: iso build/user/fsio.elf build/user/hold.elf build/user/fsfault.elf check-acpi check-memory-unit check-pmm-unit check-vmm-unit check-heap-unit check-processes-unit check-resources-unit check-scheduler-unit check-address-space-unit check-elf-unit check-monitor-unit check-runtime-unit check-console-unit check-block-unit check-ata-unit check-vfs-unit check-ramfs-unit check-bootfs-unit check-fat32-unit check-fat32-write-unit
 	python3 scripts/check-release.py
 
 # Compatibilidade com os comandos da etapa anterior: agora incluem o kernel.

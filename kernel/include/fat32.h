@@ -41,6 +41,7 @@ struct fat32 {
     uint8_t fat_cache[BLOCK_MAX_SECTOR],data[BLOCK_MAX_SECTOR];
     struct fat32_transaction tx;
     bool (*clock)(uint16_t *date,uint16_t *time);
+    void (*checkpoint)(struct fat32 *,unsigned int phase); /* Kernel test hook; normally NULL. */
 };
 /* Unmounted storage only, exclusive caller serialization. start/length are in
  * device sectors. External changes are forbidden for the mount lifetime.

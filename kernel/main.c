@@ -269,6 +269,11 @@ void kmain(void) {
     if(boot_option("selftest=storage-error-flush")) storage_error_selftest(3);
     programs_init(modules.response);
     if(boot_option("selftest=fs-syscalls")) fs_syscall_selftest();
+    if(boot_option("selftest=fs-disk")) fs_disk_selftest();
+    if(boot_option("selftest=fs-persist")) fs_disk_persist_selftest();
+    if(boot_option("selftest=fs-crash")) fs_disk_crash_selftest();
+    if(boot_option("selftest=fs-dirty")) fs_disk_recovery_selftest(false);
+    if(boot_option("selftest=fs-recover")) fs_disk_recovery_selftest(true);
     if (boot_option("selftest=elf")) elf_process_selftest();
     if (boot_option("selftest=diagnostics")) process_diagnostic_selftest();
     if (boot_option("selftest=processes")) process_selftest(false);
