@@ -268,6 +268,7 @@ void kmain(void) {
     if(boot_option("selftest=storage-error-write")) storage_error_selftest(2);
     if(boot_option("selftest=storage-error-flush")) storage_error_selftest(3);
     programs_init(modules.response);
+    if(boot_option("selftest=fs-syscalls")) fs_syscall_selftest();
     if (boot_option("selftest=elf")) elf_process_selftest();
     if (boot_option("selftest=diagnostics")) process_diagnostic_selftest();
     if (boot_option("selftest=processes")) process_selftest(false);

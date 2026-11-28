@@ -6,6 +6,7 @@
 #include <keyboard.h>
 
 int64_t sys_write(struct address_space *space, uint64_t fd, uint64_t buffer, uint64_t bytes) {
+    if(fd>=3) return syscall_file_io(space,fd,buffer,bytes,true);
     if (fd != 1 && fd != 2) return -USER_EBADF;
     if (bytes > USER_IO_MAX) return -USER_EINVAL;
     if (!bytes) return 0;
@@ -22,6 +23,7 @@ int64_t sys_write(struct address_space *space, uint64_t fd, uint64_t buffer, uin
     return (int64_t)bytes;
 }
 int64_t sys_read(struct address_space *space, uint64_t fd, uint64_t buffer, uint64_t bytes) {
+    if(fd>=3) return syscall_file_io(space,fd,buffer,bytes,false);
     if (fd != 0) return -USER_EBADF;
     if (bytes > USER_IO_MAX) return -USER_EINVAL;
     if (!bytes) return 0;
@@ -60,6 +62,16 @@ int64_t syscall_dispatch(struct address_space *space, const struct interrupt_fra
         case USER_SYSCALL_WRITE: return sys_write(space, frame->rdi, frame->rsi, frame->rdx);
         case USER_SYSCALL_READ: return sys_read(space, frame->rdi, frame->rsi, frame->rdx);
         case USER_SYSCALL_SLEEP: return sys_sleep(frame->rdi);
+        case USER_SYSCALL_OPEN: return sys_open(space,frame->rdi,frame->rsi);
+        case USER_SYSCALL_CLOSE: return sys_close(frame->rdi);
+        case USER_SYSCALL_SEEK: return sys_seek(frame->rdi,(int64_t)frame->rsi,frame->rdx);
+        case USER_SYSCALL_STAT: return sys_stat(space,frame->rdi,frame->rsi);
+        case USER_SYSCALL_MKDIR: return sys_mkdir(space,frame->rdi);
+        case USER_SYSCALL_UNLINK: return sys_unlink(space,frame->rdi,frame->rsi);
+        case USER_SYSCALL_READDIR: return sys_readdir(space,frame->rdi,frame->rsi);
+        case USER_SYSCALL_CHDIR: return sys_chdir(space,frame->rdi);
+        case USER_SYSCALL_GETCWD: return sys_getcwd(space,frame->rdi,frame->rsi);
+        case USER_SYSCALL_SYNC: return sys_sync(space,frame->rdi);
         default: return -USER_ENOSYS;
     }
 }

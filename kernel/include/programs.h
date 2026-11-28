@@ -16,4 +16,5 @@ const struct boot_program *programs_find(const char *name);
 bool programs_demo(int *alpha_status, int *beta_status);
 void elf_process_selftest(void);
 void process_diagnostic_selftest(void);
+void fs_syscall_selftest(void);
 #endif

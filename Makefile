@@ -14,6 +14,8 @@ KERNEL_OBJECTS += build/kernel/resource_core.o build/kernel/process_resources.o
 KERNEL_OBJECTS += build/kernel/address_space_core.o build/kernel/address_space.o
 KERNEL_OBJECTS += build/kernel/user_mode.o
 KERNEL_OBJECTS += build/kernel/syscall.o
+KERNEL_OBJECTS += build/kernel/syscall_fs.o
+KERNEL_OBJECTS += build/kernel/fs_syscall_test.o
 KERNEL_OBJECTS += build/kernel/elf64.o
 KERNEL_OBJECTS += build/kernel/programs.o
 KERNEL_OBJECTS += build/kernel/monitor.o
@@ -91,6 +93,9 @@ build/user/fault.elf: build/user/elf_fault.o build/user/elf_start.o user/elf_lin
 
 build/user/busy.elf: build/user/elf_busy.o build/user/elf_start.o user/elf_linker.ld
 	$(LD) -nostdlib -m elf_x86_64 -z max-page-size=0x1000 -T user/elf_linker.ld build/user/elf_start.o build/user/elf_busy.o -o $@
+
+build/user/fsio.elf: build/user/elf_fsio.o build/user/elf_start.o user/elf_linker.ld
+	$(LD) -nostdlib -m elf_x86_64 -z max-page-size=0x1000 -T user/elf_linker.ld build/user/elf_start.o build/user/elf_fsio.o -o $@
 
 build/user/syscall_registers.o: user/syscall_registers.asm build/include/syscall_abi.inc Makefile
 	mkdir -p $(@D)
@@ -267,6 +272,10 @@ check-runtime-unit:
 	build/tests/runtime
 
 .PHONY: check-fat32-write-unit
+check-fs-syscalls: iso build/user/fsio.elf
+	python3 scripts/check-fs-syscalls.py
+
+.PHONY: check-fs-syscalls
 check-fat32-write-unit:
 	mkdir -p build/tests
 	gcc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Ikernel/include tests/fat32_write_test.c kernel/fat32.c kernel/fat32_write.c kernel/vfs_core.c kernel/block.c -o build/tests/fat32-write
